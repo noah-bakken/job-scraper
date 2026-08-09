@@ -13,6 +13,10 @@ appends new hits to a Google Sheet, and emails you a digest.
 - DROP: senior / staff / principal / lead / director and level II+.
 - DROP: product *engineer* / *designer* roles (not product management).
 - DROP: roles requiring current enrollment or returning to school.
+- DROP: roles targeting a graduation window later than yours (`GRADUATED`,
+  default May 2026). "You will graduate in Fall 2026 or Spring 2027" is closed
+  to a Spring 2026 grad. This is a date comparison, **not** a ban on
+  internships: internships that accept recent grads still come through.
 - DROP: roles asking for more than `MAX_YEARS_EXPERIENCE` (default **2**) years
   of experience. Tuned for a May 2026 grad with internships but no full-time
   experience, so "3+ years" is dropped and "1-2 years" is kept.
@@ -46,6 +50,18 @@ requirement.
 carries none, and the New-Grad Feed carries none either — the feed is
 new-grad-by-construction, so that's mostly fine, but it does mean a
 higher-experience role slipping into that feed won't be caught here.
+
+### Graduation windows
+`earliest_graduation_window()` pulls the graduation date a posting targets and
+compares it to `GRADUATED` (default `(2026, 5)`). Seasons resolve to months
+(spring→May, summer→July, fall→September), and a bare year resolves to January
+as the most inclusive reading. It takes the **earliest** window mentioned, so
+"December 2025 through June 2026" is judged on its opening edge.
+
+A year only counts when graduation-ish words sit near it, so "founded in 2013"
+and "our 2026 roadmap" are ignored. **A posting that names no window is kept** —
+silence isn't a disqualification, which is what lets grad-friendly internships
+through while "graduating in Fall 2027" gets dropped.
 
 ### How the Europe exclusion avoids false positives
 `is_europe_only()` checks for a **US signal first** and only then tests for

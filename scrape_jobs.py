@@ -134,6 +134,25 @@ DESCRIPTION_EXCLUDE = [
 # to be stricter, or set to None to turn the experience filter off entirely.
 MAX_YEARS_EXPERIENCE = 2
 
+# When you graduated, as (year, month). Roles that target a LATER graduation
+# window aren't open to you: "you will graduate in Fall 2026 or Spring 2027"
+# excludes a Spring 2026 grad, and "graduating in Fall 2027" is an internship
+# for someone still two years from finishing.
+#
+# This is deliberately a date comparison and NOT a ban on internships. Plenty of
+# internships and co-ops accept recent grads, and those keep whatever window
+# they state, so they still come through. Set to None to disable.
+GRADUATED = (2026, 5)
+
+_SEASON_MONTH = {"winter": 1, "spring": 5, "summer": 7, "fall": 9, "autumn": 9}
+# A year only counts as a graduation window if graduation-ish words sit near it,
+# so "founded in 2013" and "our 2026 roadmap" are ignored.
+_GRAD_CONTEXT = re.compile(
+    r"\b(graduat\w*|pursu\w*|enroll\w*|degree|class of|commencement|"
+    r"bachelor\w*|master\w*|undergrad\w*)\b", re.I)
+_GRAD_WINDOW = re.compile(
+    r"\b(?:(winter|spring|summer|fall|autumn)\s+)?((?:19|20)\d{2})\b", re.I)
+
 # Spelled-out numbers seen in the wild ("at least three years").
 _WORD_NUMBERS = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
@@ -562,6 +581,31 @@ def min_years_required(desc):
     return None
 
 
+def earliest_graduation_window(desc):
+    """Earliest graduation date a posting targets, as (year, month).
+
+    Returns None when the description names no graduation window, in which case
+    the role is kept -- silence is not a disqualification. Takes the earliest of
+    several windows, so "Fall 2026 or Spring 2027" is judged on Fall 2026 and a
+    range like "December 2025 through June 2026" is judged on its opening edge.
+    A bare year with no season resolves to January, the most inclusive reading.
+    """
+    if not desc:
+        return None
+    text = re.sub(r"\s+", " ", desc)
+    best = None
+    for m in _GRAD_WINDOW.finditer(text):
+        window = text[max(0, m.start() - 90):m.end() + 90]
+        if not _GRAD_CONTEXT.search(window):
+            continue
+        season, year = m.group(1), int(m.group(2))
+        month = _SEASON_MONTH.get((season or "").lower(), 1)
+        cand = (year, month)
+        if best is None or cand < best:
+            best = cand
+    return best
+
+
 def _title_excluded(title):
     t = title.lower()
     for w in TITLE_EXCLUDE_WORDS:
@@ -607,6 +651,10 @@ def matches(job):
     if MAX_YEARS_EXPERIENCE is not None:
         years = min_years_required(desc)
         if years is not None and years > MAX_YEARS_EXPERIENCE:
+            return False
+    if GRADUATED is not None:
+        grad = earliest_graduation_window(desc)
+        if grad is not None and grad > GRADUATED:
             return False
     return True
 

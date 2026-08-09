@@ -155,14 +155,84 @@ LOCATION_PRIORITY = [
 ]
 _SHORT_LOC = {"sf", "nyc", "ny", "ca", "dc"}
 
+# Europe-only roles are DROPPED, remote or on-site. A role that also lists a US
+# location is kept, so "San Francisco, New York, London" survives.
+#
+# Order matters: a US signal wins outright, and only then do we test for Europe.
+# That precedence is what makes bare city names safe to list below -- "Vienna,
+# VA", "Dublin, CA" and "Cambridge, MA" are US roles that match a US term first
+# and never reach the Europe test. Never reorder these two checks.
+US_TERMS = [
+    "usa", "u.s.", "united states", "us-remote", "remote us", "remote - us",
+    # Full state names are unambiguous.
+    "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
+    "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
+    "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine",
+    "maryland", "massachusetts", "michigan", "minnesota", "mississippi",
+    "missouri", "montana", "nebraska", "nevada", "new hampshire", "new jersey",
+    "new mexico", "north carolina", "north dakota", "ohio", "oklahoma",
+    "oregon", "pennsylvania", "rhode island", "south carolina", "south dakota",
+    "tennessee", "texas", "utah", "vermont", "virginia", "washington",
+    "west virginia", "wisconsin", "wyoming",
+    # Big US metros, so "New York, London" reads as US.
+    "new york", "nyc", "brooklyn", "san francisco", "bay area", "san jose",
+    "palo alto", "mountain view", "sunnyvale", "oakland", "san diego",
+    "los angeles", "seattle", "bellevue", "redmond", "chicago", "austin",
+    "boston", "denver", "atlanta", "philadelphia", "pittsburgh", "phoenix",
+    "dallas", "houston", "miami", "detroit", "minneapolis", "portland",
+    "salt lake", "nashville", "charlotte", "arlington", "sacramento", "irvine",
+]
+# State codes match as whole words only. Deliberately omits the codes that
+# collide with European names or English words: DE (Delaware/Deutschland),
+# IN, OR, IT, ME, OK, HI, ID, LA, NO, FI, PL, AT, BE, SE, CH, IE.
+US_STATE_CODES = {
+    "al", "ak", "az", "ar", "ca", "co", "ct", "dc", "fl", "ga", "ia", "il",
+    "ks", "ky", "ma", "md", "mi", "mn", "mo", "ms", "mt", "nc", "nd", "nh",
+    "nj", "nm", "nv", "ny", "oh", "pa", "ri", "sc", "sd", "tn", "tx", "ut",
+    "va", "vt", "wa", "wi", "wv", "wy",
+}
+
+EUROPE_TERMS = [
+    # Regions
+    "europe", "european", "emea",
+    # Countries
+    "united kingdom", "england", "scotland", "wales", "northern ireland",
+    "ireland", "germany", "deutschland", "france", "spain", "portugal",
+    "italy", "netherlands", "holland", "belgium", "luxembourg",
+    "switzerland", "austria", "sweden", "norway", "denmark", "finland",
+    "iceland", "poland", "czech", "czechia", "slovakia", "slovenia",
+    "hungary", "romania", "bulgaria", "greece", "croatia", "serbia",
+    "estonia", "latvia", "lithuania", "ukraine", "malta", "cyprus",
+    # Cities. Safe to list because a US term already won above.
+    "london", "dublin", "berlin", "munich", "hamburg", "frankfurt", "cologne",
+    "dusseldorf", "stuttgart", "paris", "lyon", "toulouse", "marseille",
+    "madrid", "barcelona", "valencia", "seville", "lisbon", "porto",
+    "milan", "rome", "turin", "bologna", "amsterdam", "rotterdam",
+    "eindhoven", "brussels", "antwerp", "zurich", "geneva", "basel",
+    "vienna", "stockholm", "gothenburg", "malmo", "oslo", "bergen",
+    "copenhagen", "aarhus", "helsinki", "tampere", "warsaw", "krakow",
+    "wroclaw", "gdansk", "poznan", "prague", "brno", "budapest",
+    "bucharest", "cluj", "sofia", "athens", "thessaloniki", "zagreb",
+    "tallinn", "riga", "vilnius", "edinburgh", "glasgow", "belfast", "cork",
+]
+# Country codes matched as whole words only (ISO-ish, as ATSes emit them).
+EUROPE_CODES = {
+    "uk", "gbr", "gb", "irl", "deu", "ger", "fra", "esp", "prt", "ita",
+    "nld", "bel", "lux", "che", "aut", "swe", "nor", "dnk", "fin", "isl",
+    "pol", "cze", "svk", "svn", "hun", "rou", "bgr", "grc", "hrv", "srb",
+    "est", "lva", "ltu", "ukr", "mlt", "cyp",
+}
+
 # Google Sheet. SHEET_ID (from the sheet URL) is preferred: opening by key needs
 # only the spreadsheets scope and no Drive API call. Falling back to the name
 # costs a Drive lookup per run and needs the Drive API enabled.
 SHEET_ID = os.environ.get("SHEET_ID", "")
 SHEET_NAME = "Job Tracker"
 WORKSHEET_NAME = "Jobs"
-HEADER = ["Date added", "Priority", "Company", "Title", "Location", "URL", "Applied?"]
-URL_COL = 6  # column F holds the URL (used for dedup)
+HEADER = ["Date added", "Date posted", "Priority", "Company", "Title", "Location",
+          "URL", "Applied?"]
+URL_COL = 7       # column G holds the URL (used for dedup)
+PRIORITY_IDX = 2  # index of the Priority cell within a row
 
 # Email (all read from env / GitHub secrets; email is skipped if unset)
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
@@ -189,6 +259,69 @@ def _join(*parts):
     return " ".join(p for p in parts if p)
 
 
+def _norm_date(value):
+    """Normalize a source's posted date to YYYY-MM-DD.
+
+    Returns "" when a source gives nothing usable rather than inventing a date,
+    so an empty Date posted cell means "this source didn't say", not "today".
+    Handles epoch seconds/ms (New-Grad Feed, Lever), ISO 8601 with or without a
+    timezone (Greenhouse, Ashby, Microsoft), and Amazon's "August  7, 2026".
+    """
+    if value is None or value == "":
+        return ""
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, (int, float)):
+        ts = float(value)
+        if ts > 1e11:  # milliseconds, not seconds
+            ts /= 1000.0
+        try:
+            return datetime.datetime.fromtimestamp(
+                ts, datetime.timezone.utc).date().isoformat()
+        except (ValueError, OSError, OverflowError):
+            return ""
+    s = re.sub(r"\s+", " ", str(value)).strip()
+    if not s:
+        return ""
+    if s.isdigit():  # epoch arriving as a string
+        return _norm_date(int(s))
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
+    if m:
+        return m.group(0)
+    for fmt in ("%B %d, %Y", "%b %d, %Y", "%m/%d/%Y", "%d %B %Y"):
+        try:
+            return datetime.datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return ""
+
+
+def _has_term(text, terms, codes):
+    """Substring match on terms, whole-word match on short codes."""
+    for t in terms:
+        if t in text:
+            return True
+    for code in codes:
+        if re.search(rf"\b{re.escape(code)}\b", text):
+            return True
+    return False
+
+
+def is_europe_only(loc):
+    """True if the role looks European with no US location alongside it.
+
+    A US signal short-circuits, which is what keeps "Vienna, VA" and
+    "San Francisco, New York, London" out of the Europe bucket. A blank or bare
+    "Remote" location matches nothing and is kept.
+    """
+    text = (loc or "").lower()
+    if not text.strip():
+        return False
+    if _has_term(text, US_TERMS, US_STATE_CODES):
+        return False
+    return _has_term(text, EUROPE_TERMS, EUROPE_CODES)
+
+
 # ===========================================================================
 # Adapters -> each returns list of {title, location, url, description}
 # ===========================================================================
@@ -200,6 +333,8 @@ def fetch_greenhouse(c):
         "title": j.get("title", ""),
         "location": (j.get("location") or {}).get("name", ""),
         "url": j.get("absolute_url", ""),
+        # first_published, not updated_at: a reposted job updates the latter.
+        "posted": j.get("first_published", ""),
         "description": _strip_html(j.get("content", "")),
     } for j in r.json().get("jobs", [])]
 
@@ -217,6 +352,7 @@ def fetch_lever(c):
             "title": j.get("text", ""),
             "location": (j.get("categories") or {}).get("location", ""),
             "url": j.get("hostedUrl", ""),
+            "posted": j.get("createdAt", ""),  # epoch ms
             "description": desc,
         })
     return out
@@ -230,6 +366,7 @@ def fetch_ashby(c):
         "title": j.get("title", ""),
         "location": j.get("location", ""),
         "url": j.get("jobUrl", ""),
+        "posted": j.get("publishedAt", ""),
         "description": _strip_html(j.get("descriptionPlain") or j.get("description", "")),
     } for j in r.json().get("jobs", [])]
 
@@ -257,6 +394,9 @@ def fetch_workday(c):
                     "title": j.get("title", ""),
                     "location": j.get("locationsText", ""),
                     "url": f"{base}/en-US/{site}{path}" if path else base,
+                    # Workday only gives relative text ("Posted 5 Days Ago"),
+                    # which won't normalize to a real date, so leave it blank.
+                    "posted": "",
                     # Workday listing carries no description; title filter only.
                     "description": "",
                 })
@@ -276,6 +416,7 @@ def fetch_amazon(c):
                 "title": j.get("title", ""),
                 "location": j.get("normalized_location") or j.get("location", ""),
                 "url": "https://www.amazon.jobs" + (j.get("job_path") or ""),
+                "posted": j.get("posted_date", ""),
                 "description": _join(_strip_html(j.get("description", "")),
                                      _strip_html(j.get("basic_qualifications", "")),
                                      _strip_html(j.get("preferred_qualifications", ""))),
@@ -299,6 +440,7 @@ def fetch_google(c):
                 "title": j.get("title", ""),
                 "location": loc,
                 "url": j.get("apply_url") or "",
+                "posted": j.get("publish_date", ""),
                 "description": _join(_strip_html(j.get("description", "")), _strip_html(quals)),
             })
     return out
@@ -319,6 +461,7 @@ def fetch_microsoft(c):
                 "title": j.get("title", ""),
                 "location": j.get("primaryLocation") or props.get("primaryLocation", ""),
                 "url": f"https://jobs.careers.microsoft.com/global/en/job/{jid}",
+                "posted": props.get("postingDate", ""),
                 "description": _strip_html(props.get("description", "")),
             })
     return out
@@ -344,6 +487,9 @@ def fetch_newgrad_feed(c):
             "title": j.get("title", ""),
             "location": ", ".join(j.get("locations") or []),
             "url": j.get("url", ""),
+            # Epoch seconds. Reflects when the feed picked the job up, which
+            # can lag the company's own posting date.
+            "posted": j.get("date_posted", ""),
             "description": "",
         })
     return out
@@ -392,11 +538,14 @@ def is_priority_location(loc):
 
 
 def matches(job):
-    # Location is NOT a filter anymore, so roles anywhere are kept. Location
-    # only affects priority ranking (see is_priority_location).
+    # Location is only a filter in one direction: Europe-only roles are dropped.
+    # Everywhere else is kept, and location otherwise just drives priority
+    # ranking (see is_priority_location).
     title = (job.get("title") or "").lower()
     desc = (job.get("description") or "").lower()
 
+    if is_europe_only(job.get("location")):
+        return False
     if not any(k in title for k in TITLE_INCLUDE):
         return False
     if _title_excluded(title):
@@ -454,18 +603,19 @@ def send_email(rows):
         print("[email] SMTP not configured, skipping email.")
         return
     # Priority roles first in the digest.
-    ordered = sorted(rows, key=lambda r: r[1] != "Yes")
-    n_prio = sum(1 for r in rows if r[1] == "Yes")
+    ordered = sorted(rows, key=lambda r: r[PRIORITY_IDX] != "Yes")
+    n_prio = sum(1 for r in rows if r[PRIORITY_IDX] == "Yes")
     lines = [f"{len(rows)} new role(s) ({n_prio} in your preferred locations):\n"]
     html_items = []
-    for _date, prio, company, title, location, url, _a in ordered:
+    for _added, posted, prio, company, title, location, url, _a in ordered:
         star = "\u2b50 " if prio == "Yes" else ""
-        lines.append(f"- {star}{company}: {title} ({location})\n  {url}")
+        when = f", posted {posted}" if posted else ""
+        lines.append(f"- {star}{company}: {title} ({location}{when})\n  {url}")
         badge = ("<span style='color:#c47f00'>\u2b50 priority</span> " if prio == "Yes" else "")
         html_items.append(
             f"<li>{badge}<b>{html.escape(company)}</b>: "
             f"<a href='{html.escape(url)}'>{html.escape(title)}</a> "
-            f"<span style='color:#666'>{html.escape(location)}</span></li>"
+            f"<span style='color:#666'>{html.escape(location)}{html.escape(when)}</span></li>"
         )
     msg = EmailMessage()
     msg["Subject"] = f"{len(rows)} new product role(s), {n_prio} priority"
@@ -514,20 +664,21 @@ def main():
             if not matches(j):
                 continue
             prio = "Yes" if is_priority_location(j.get("location")) else ""
-            new_rows.append([today, prio, c["name"], j["title"], j["location"], url, ""])
+            new_rows.append([today, _norm_date(j.get("posted")), prio, c["name"],
+                             j["title"], j["location"], url, ""])
             existing_urls.add(url)
             kept += 1
         print(f"{c['name']}: {kept} new match(es)")
 
     if new_rows:
         # Append priority roles first so they sit higher in the sheet.
-        new_rows.sort(key=lambda r: r[1] != "Yes")
+        new_rows.sort(key=lambda r: r[PRIORITY_IDX] != "Yes")
         ws.append_rows(new_rows, value_input_option="USER_ENTERED")
         try:
             send_email(new_rows)
         except Exception as e:
             print(f"[warn] email failed: {e}")
-    n_prio = sum(1 for r in new_rows if r[1] == "Yes")
+    n_prio = sum(1 for r in new_rows if r[PRIORITY_IDX] == "Yes")
     print(f"Done. Added {len(new_rows)} new job(s) ({n_prio} priority).")
 
 

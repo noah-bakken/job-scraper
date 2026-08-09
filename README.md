@@ -14,11 +14,25 @@ appends new hits to a Google Sheet, and emails you a digest.
 - DROP: product *engineer* / *designer* roles (not product management).
 - DROP: roles requiring current enrollment or returning to school.
 - DROP: roles asking for 5+ years of experience.
-- Location is NOT a filter. Roles anywhere are kept; preferred locations are just flagged and floated to the top.
+- DROP: Europe-only roles, remote or on-site. A role that also lists a US
+  location is kept, so "San Francisco, New York, London" survives.
+- Location is otherwise NOT a filter. Roles anywhere else (Canada, LATAM, APAC)
+  are kept; preferred locations are just flagged and floated to the top.
 
 Every rule is a plain list at the top of `scrape_jobs.py`
 (`TITLE_INCLUDE`, `TITLE_EXCLUDE_WORDS`, `DESCRIPTION_EXCLUDE`,
-`EXPERIENCE_EXCLUDE`, `LOCATION_FILTER`). Edit freely.
+`EXPERIENCE_EXCLUDE`, `LOCATION_PRIORITY`, `EUROPE_TERMS`, `US_TERMS`).
+Edit freely.
+
+### How the Europe exclusion avoids false positives
+`is_europe_only()` checks for a **US signal first** and only then tests for
+Europe. That ordering is the whole trick: `Vienna, VA`, `Dublin, CA`,
+`Cambridge, MA`, `Berlin, CT` and `Paris, TX` all match a US term and never
+reach the Europe test, so listing bare city names in `EUROPE_TERMS` is safe.
+**Don't reorder those two checks.** Two-letter codes match as whole words only,
+and `US_STATE_CODES` deliberately omits codes that collide with European names
+or English words (`DE`, `IN`, `OR`, `IT`, `ME`, `OK`, `HI`, `ID`, `LA`).
+A blank or bare `Remote` location matches nothing and is kept.
 
 ### Locations (priority, not a filter)
 Every role is kept regardless of location. The ones matching `LOCATION_PRIORITY`
@@ -97,6 +111,18 @@ python scrape_jobs.py
 ## Known limits
 - First run will populate a batch of currently-open matches; after that, only
   genuinely new postings are added (deduped on URL).
+- **Date posted** quality varies by source, and is blank when a source gives
+  nothing usable rather than being filled with a guess. Greenhouse
+  (`first_published`) and Ashby (`publishedAt`) are exact. Amazon
+  (`posted_date`) is day-accurate. The New-Grad Feed's `date_posted` is when the
+  *feed* picked the job up, which can lag the company's own posting. Workday is
+  always blank: it only exposes relative text like "Posted 5 Days Ago". So sort
+  on it loosely, and treat a blank as "unknown", not "old".
+- A **stale-looking Date posted doesn't mean a stale job.** Companies that
+  recycle one requisition every hiring cycle keep their original
+  `first_published`, so a currently-open Databricks "Summer 2027" internship
+  reads as posted 2023-08-17. Switch the greenhouse adapter to `updated_at` if
+  you'd rather the column track recency than true first-posting.
 - Workday listings have no description, so the enrollment and experience filters
   are title-only there.
 - Filters are keyword-based. If a good role gets dropped, remove the phrase that

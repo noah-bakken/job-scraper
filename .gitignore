@@ -1,0 +1,12 @@
+# Virtualenv
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Credentials — never commit service-account keys or any JSON secrets
+*.json
+!.github/**/*.json
+
+# Local env
+.env

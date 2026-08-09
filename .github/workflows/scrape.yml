@@ -1,0 +1,36 @@
+name: Scrape jobs
+
+on:
+  schedule:
+    # Every 20 minutes. Keeps detection lag under an hour even if the platform
+    # delays a run. Times are UTC.
+    - cron: "*/20 * * * *"
+  workflow_dispatch: {}   # manual "Run workflow" button for testing
+
+# Prevent overlapping runs if one is slow.
+concurrency:
+  group: scrape-jobs
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          # Sheet ID, not a credential, but kept out of a public repo.
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python scrape_jobs.py

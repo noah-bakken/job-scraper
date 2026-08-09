@@ -13,7 +13,9 @@ appends new hits to a Google Sheet, and emails you a digest.
 - DROP: senior / staff / principal / lead / director and level II+.
 - DROP: product *engineer* / *designer* roles (not product management).
 - DROP: roles requiring current enrollment or returning to school.
-- DROP: roles asking for 5+ years of experience.
+- DROP: roles asking for more than `MAX_YEARS_EXPERIENCE` (default **2**) years
+  of experience. Tuned for a May 2026 grad with internships but no full-time
+  experience, so "3+ years" is dropped and "1-2 years" is kept.
 - DROP: Europe-only roles, remote or on-site. A role that also lists a US
   location is kept, so "San Francisco, New York, London" survives.
 - Location is otherwise NOT a filter. Roles anywhere else (Canada, LATAM, APAC)
@@ -23,6 +25,27 @@ Every rule is a plain list at the top of `scrape_jobs.py`
 (`TITLE_INCLUDE`, `TITLE_EXCLUDE_WORDS`, `DESCRIPTION_EXCLUDE`,
 `EXPERIENCE_EXCLUDE`, `LOCATION_PRIORITY`, `EUROPE_TERMS`, `US_TERMS`).
 Edit freely.
+
+### How the experience filter works
+`min_years_required()` parses the smallest number of years a posting asks for
+instead of matching phrase strings, so it handles "3+ years", "3-5 years",
+"at least three years" and "minimum of 3 yrs" with one rule. Compare that
+against `MAX_YEARS_EXPERIENCE` (default 2; set to `None` to disable).
+
+Two deliberate choices:
+- It takes the **minimum**, so "2+ years required, 5+ preferred" is judged on
+  the 2. It under-drops rather than over-drops.
+- A **range keeps its floor**, so "1-3 years" reads as 1 and survives.
+
+It skips retrospective phrasing ("over the past 5 years we have grown",
+"founded 10 years ago") and requires the match to sit near a word like
+*experience* or *background*, so a "5 year vision" isn't mistaken for a
+requirement.
+
+**This filter can only act on postings that ship a description.** Workday
+carries none, and the New-Grad Feed carries none either — the feed is
+new-grad-by-construction, so that's mostly fine, but it does mean a
+higher-experience role slipping into that feed won't be caught here.
 
 ### How the Europe exclusion avoids false positives
 `is_europe_only()` checks for a **US signal first** and only then tests for

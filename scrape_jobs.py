@@ -124,14 +124,37 @@ DESCRIPTION_EXCLUDE = [
     "currently pursuing a master",
 ]
 
-# Drop roles that clearly want a lot of experience. Lenient by default: only 5+
-# years and up, so ambiguous 1-3 year roles still surface. Empty this list to
-# turn the experience filter off entirely.
-EXPERIENCE_EXCLUDE = [
-    "5+ years", "6+ years", "7+ years", "8+ years", "9+ years", "10+ years",
-    "5-7 years", "5 to 7 years", "5-8 years", "at least 5 years",
-    "minimum of 5 years", "minimum 5 years",
+# Drop roles asking for more full-time experience than you have. Listing
+# phrasings ("3+ years", "3-5 years", "at least three years", "minimum of 3
+# yrs") never ends, so min_years_required() parses the smallest number of years
+# a posting asks for and we compare against this ceiling.
+#
+# You graduated May 2026 with four internships and no full-time experience, so
+# 3+ years is out of reach while 1-2 years is a reasonable stretch. Lower to 1
+# to be stricter, or set to None to turn the experience filter off entirely.
+MAX_YEARS_EXPERIENCE = 2
+
+# Spelled-out numbers seen in the wild ("at least three years").
+_WORD_NUMBERS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+_NUM = r"(\d{1,2}|" + "|".join(_WORD_NUMBERS) + r")"
+# Phrases that look backward at history instead of stating a requirement
+# ("over the past 3 years we have..."), which would otherwise false-positive.
+_BACKWARD_LOOKING = re.compile(
+    r"\b(past|last|next|previous|prior to|within the|over the|ago)\b", re.I)
+# Ordered most-explicit first; the first pattern that matches anything wins, so
+# a bare "3 years" can't undercut an explicit "at least 5 years" elsewhere.
+_YEARS_PATTERNS = [
+    re.compile(rf"\b(?:at least|minimum(?: of)?|min\.?)\s+{_NUM}\s*\+?\s*(?:years?|yrs?)\b", re.I),
+    re.compile(rf"\b{_NUM}\s*(?:\+|or more)\s*(?:years?|yrs?)\b", re.I),
+    re.compile(rf"\b{_NUM}\s*(?:-|–|—|to)\s*\d{{1,2}}\s*(?:years?|yrs?)\b", re.I),
+    re.compile(rf"\b{_NUM}\s*(?:years?|yrs?)\b", re.I),
 ]
+# The match must sit near one of these or it isn't about experience at all.
+_EXPERIENCE_CONTEXT = re.compile(
+    r"\b(experience|exp|background|working|industry|professional)\b", re.I)
 
 # Search terms used by the search-endpoint adapters (amazon/google/microsoft/workday).
 SEARCH_QUERIES = [
@@ -510,6 +533,35 @@ FETCHERS = {
 # ===========================================================================
 # Filtering
 # ===========================================================================
+def min_years_required(desc):
+    """Smallest number of years of experience a posting asks for.
+
+    Returns None when the description says nothing about years, which includes
+    every source that ships no description at all (Workday, the New-Grad Feed).
+    Taking the *minimum* is deliberate: a posting listing "2+ years required,
+    5+ preferred" is judged on the 2, so we under-drop rather than over-drop.
+    """
+    if not desc:
+        return None
+    text = re.sub(r"\s+", " ", desc)
+    for pat in _YEARS_PATTERNS:
+        best = None
+        for m in pat.finditer(text):
+            # Skip retrospective phrasing like "over the past 3 years".
+            if _BACKWARD_LOOKING.search(text[max(0, m.start() - 30):m.start()]):
+                continue
+            window = text[max(0, m.start() - 40):m.end() + 50]
+            if not _EXPERIENCE_CONTEXT.search(window):
+                continue
+            tok = m.group(1)
+            val = int(tok) if tok.isdigit() else _WORD_NUMBERS[tok.lower()]
+            if best is None or val < best:
+                best = val
+        if best is not None:
+            return best
+    return None
+
+
 def _title_excluded(title):
     t = title.lower()
     for w in TITLE_EXCLUDE_WORDS:
@@ -552,8 +604,10 @@ def matches(job):
         return False
     if any(p in desc for p in DESCRIPTION_EXCLUDE):
         return False
-    if any(p in desc for p in EXPERIENCE_EXCLUDE):
-        return False
+    if MAX_YEARS_EXPERIENCE is not None:
+        years = min_years_required(desc)
+        if years is not None and years > MAX_YEARS_EXPERIENCE:
+            return False
     return True
 
 

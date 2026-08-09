@@ -10,3 +10,10 @@ __pycache__/
 
 # Local env
 .env
+
+# Sheet backups and cleanup working files. Not secret, but this repo is public
+# and these hold your personal job list.
+sheet_backup*.csv
+sheet_backup*.json
+cleanup_decisions.json
+rm_rows.json

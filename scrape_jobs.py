@@ -20,6 +20,7 @@ import ssl
 import html
 import json
 import smtplib
+import argparse
 import datetime
 from email.message import EmailMessage
 
@@ -124,15 +125,19 @@ DESCRIPTION_EXCLUDE = [
     "currently pursuing a master",
 ]
 
-# Drop roles asking for more full-time experience than you have. Listing
-# phrasings ("3+ years", "3-5 years", "at least three years", "minimum of 3
-# yrs") never ends, so min_years_required() parses the smallest number of years
-# a posting asks for and we compare against this ceiling.
+# Drop roles asking for full-time experience you don't have. Listing phrasings
+# ("3+ years", "3-5 years", "at least three years", "minimum of 3 yrs") never
+# ends, so years_required() parses the years a posting demands and we compare
+# against this ceiling.
 #
 # You graduated May 2026 with four internships and no full-time experience, so
-# 3+ years is out of reach while 1-2 years is a reasonable stretch. Lower to 1
-# to be stricter, or set to None to turn the experience filter off entirely.
-MAX_YEARS_EXPERIENCE = 2
+# the ceiling is 0: a posting asking for even "1+ years" is asking for something
+# you do not have. Postings whose requirement internships satisfy ("1+ years of
+# internship experience") are NOT counted -- see years_required. A posting
+# stating "0-2 years" reads as 0 and still comes through.
+#
+# Raise to 1 or 2 to allow a stretch, or set to None to disable the filter.
+MAX_YEARS_EXPERIENCE = 0
 
 # When you graduated, as (year, month). Roles that target a LATER graduation
 # window aren't open to you: "you will graduate in Fall 2026 or Spring 2027"
@@ -163,17 +168,44 @@ _NUM = r"(\d{1,2}|" + "|".join(_WORD_NUMBERS) + r")"
 # ("over the past 3 years we have..."), which would otherwise false-positive.
 _BACKWARD_LOOKING = re.compile(
     r"\b(past|last|next|previous|prior to|within the|over the|ago)\b", re.I)
-# Ordered most-explicit first; the first pattern that matches anything wins, so
-# a bare "3 years" can't undercut an explicit "at least 5 years" elsewhere.
-_YEARS_PATTERNS = [
+# A company describing itself -- "we have been building this for 10 years",
+# "we've been working in this industry for over 8 years" -- is the most common
+# way a description mentions years without asking for any. The "been ... for N
+# years" shape is checked over a wider lookback than _BACKWARD_LOOKING uses,
+# because the "been" can sit a clause away from the number; it stops at sentence
+# punctuation so it can't reach across into an unrelated sentence.
+#
+# This deliberately does not swallow "we are looking for 3+ years of
+# experience", a real requirement using the same "for N years" shape. The cost
+# is that a requirement phrased "you must have been in a product role for 3
+# years" is missed -- far rarer than the boilerplate, and at a ceiling of 0 a
+# false positive silently hides a job you could actually get.
+_COMPANY_HISTORY = re.compile(
+    r"\bbeen\b[^.;!?]{0,60}\bfor\s+(?:over\s+|more than\s+|nearly\s+|almost\s+)?$", re.I)
+# Requirement-shaped phrasings. These are counted wherever they appear, with no
+# nearby-keyword requirement: "5+ years in performance engineering" states a
+# requirement even though it never says the word "experience".
+_YEARS_EXPLICIT = [
     re.compile(rf"\b(?:at least|minimum(?: of)?|min\.?)\s+{_NUM}\s*\+?\s*(?:years?|yrs?)\b", re.I),
     re.compile(rf"\b{_NUM}\s*(?:\+|or more)\s*(?:years?|yrs?)\b", re.I),
+    # A range contributes its FLOOR, so "1-3 years" reads as 1 and survives.
     re.compile(rf"\b{_NUM}\s*(?:-|–|—|to)\s*\d{{1,2}}\s*(?:years?|yrs?)\b", re.I),
-    re.compile(rf"\b{_NUM}\s*(?:years?|yrs?)\b", re.I),
 ]
-# The match must sit near one of these or it isn't about experience at all.
+# A bare "3 years" is ambiguous ("our 5 year vision"), so it only counts when a
+# word below sits nearby.
+_YEARS_BARE = re.compile(rf"\b{_NUM}\s*(?:years?|yrs?)\b", re.I)
 _EXPERIENCE_CONTEXT = re.compile(
-    r"\b(experience|exp|background|working|industry|professional)\b", re.I)
+    r"\b(experience|exp|background|working|industry|professional|track record)\b", re.I)
+# Years that internships or co-ops can satisfy are not full-time years, so a
+# posting wanting "1+ years of internship experience" is open to you and the
+# requirement is ignored rather than counted against the ceiling.
+_INTERNSHIP_CONTEXT = re.compile(
+    r"\b(interns?|internships?|co-?ops?|apprenticeships?)\b", re.I)
+# "Are you at least 18 years of age?" is an application-form eligibility
+# question, not a requirement -- but it is phrased exactly like one, so
+# _YEARS_EXPLICIT matches it and the role scores as needing 18 years. Fetching
+# full posting pages made this common, since that is where such forms live.
+_AGE_CONTEXT = re.compile(r"\s*(of age|years? old|or older)\b", re.I)
 
 # Search terms used by the search-endpoint adapters (amazon/google/microsoft/workday).
 SEARCH_QUERIES = [
@@ -232,6 +264,51 @@ US_STATE_CODES = {
     "ks", "ky", "ma", "md", "mi", "mn", "mo", "ms", "mt", "nc", "nd", "nh",
     "nj", "nm", "nv", "ny", "oh", "pa", "ri", "sc", "sd", "tn", "tx", "ut",
     "va", "vt", "wa", "wi", "wv", "wy",
+}
+
+# Non-US regions outside Europe. Same precedence rule as EUROPE_TERMS: a US
+# signal wins first, so bare city names are safe to list here.
+#
+# The filter drops on a positive NON-US signal instead of requiring a positive
+# US one, and that direction is deliberate. US_TERMS is tuned for the Europe
+# test, where a missed US signal is harmless, so it does not recognize "SF" and
+# US_STATE_CODES omits ID/LA/IN/OR because they collide with words and European
+# names. Requiring a US match would therefore delete real US roles -- "SF" and
+# "Boise, ID" both fail it. Dropping only on a positive non-US match keeps
+# those, at the cost of keeping a role whose country is simply never named.
+NON_US_TERMS = [
+    # Canada
+    "canada", "ontario", "quebec", "alberta", "british columbia", "manitoba",
+    "saskatchewan", "nova scotia", "new brunswick", "toronto", "vancouver",
+    "montreal", "ottawa", "calgary", "edmonton", "waterloo", "north york",
+    "mississauga", "saint john",
+    # Latin America
+    "brazil", "brasil", "sao paulo", "são paulo", "rio de janeiro", "mexico",
+    "guadalajara", "monterrey", "argentina", "buenos aires", "chile",
+    "santiago", "colombia", "bogota", "bogotá", "medellin", "peru", "lima",
+    "costa rica", "san jose, cr", "uruguay", "montevideo",
+    # Asia-Pacific
+    "india", "bengaluru", "bangalore", "hyderabad", "gurgaon", "gurugram",
+    "noida", "mumbai", "pune", "chennai", "delhi", "kolkata",
+    "singapore", "japan", "tokyo", "osaka", "china", "shanghai", "beijing",
+    "shenzhen", "hong kong", "taiwan", "taipei", "korea", "seoul",
+    "australia", "sydney", "melbourne", "brisbane", "perth", "canberra",
+    "new zealand", "auckland", "wellington",
+    "philippines", "manila", "vietnam", "hanoi", "ho chi minh",
+    "thailand", "bangkok", "indonesia", "jakarta", "malaysia",
+    "kuala lumpur", "nsw", "victoria, au",
+    # Middle East / Africa
+    "israel", "tel aviv", "tel-aviv", "haifa", "jerusalem", "turkey",
+    "istanbul", "united arab emirates", "dubai", "abu dhabi", "qatar", "doha",
+    "saudi", "riyadh", "egypt", "cairo", "nigeria", "lagos", "kenya",
+    "nairobi", "south africa", "johannesburg", "cape town",
+]
+# Three-letter country codes, as Amazon writes them ("Sao Paulo, BRA").
+NON_US_CODES = {
+    "bra", "jpn", "can", "ind", "sgp", "aus", "mex", "gbr", "deu", "fra",
+    "chn", "kor", "isr", "are", "zaf", "phl", "vnm", "tha", "idn", "mys",
+    "nzl", "col", "arg", "chl", "esp", "ita", "nld", "pol", "irl", "che",
+    "swe", "tur", "egy", "sau", "qat", "ken", "per", "ury",
 }
 
 EUROPE_TERMS = [
@@ -364,6 +441,27 @@ def is_europe_only(loc):
     return _has_term(text, EUROPE_TERMS, EUROPE_CODES)
 
 
+def is_non_us(loc):
+    """True if the role names a country outside the US.
+
+    You only want US roles, so this is a hard filter in matches(). It drops on
+    a positive non-US signal rather than requiring a positive US one -- see the
+    note above NON_US_TERMS for why requiring a US match would delete real US
+    roles like "SF" and "Boise, ID".
+
+    The consequence to know: a listing that never names a country is KEPT. A
+    blank location, or a bare "Remote" with no country, has nothing to match,
+    and dropping those would lose US-remote roles.
+    """
+    text = (loc or "").lower()
+    if not text.strip():
+        return False
+    if _has_term(text, US_TERMS, US_STATE_CODES):
+        return False
+    return (_has_term(text, EUROPE_TERMS, EUROPE_CODES)
+            or _has_term(text, NON_US_TERMS, NON_US_CODES))
+
+
 # ===========================================================================
 # Adapters -> each returns list of {title, location, url, description}
 # ===========================================================================
@@ -466,29 +564,87 @@ def fetch_amazon(c):
     return out
 
 
+GOOGLE_BASE = "https://www.google.com/about/careers/applications/"
+GOOGLE_RESULTS_URL = GOOGLE_BASE + "jobs/results"
+GOOGLE_PAGE_SIZE = 20   # what the results page returns per request
+GOOGLE_MAX_PAGES = 5    # 100 roles per query; the list is relevance-ordered
+# Cards are found by the job link plus its "Learn more about <title>" label
+# rather than by CSS class: Google's class names are obfuscated build artifacts
+# ("lLd3Je") that change without notice, while these two are structural.
+_G_CARD = re.compile(r'href="(jobs/results/[^"]+)"[^>]*aria-label="Learn more about ([^"]+)"')
+_G_LOC = re.compile(r'place</i>.{0,200}?<span[^>]*>([^<]{3,80})</span>', re.S)
+
+
 def fetch_google(c):
+    """Scrape the Google careers results page.
+
+    The old careers.google.com/api/v3 JSON endpoint was retired and now 404s.
+    Its replacement is server-rendered HTML, so this parses the results page
+    directly. Each card carries its own qualifications text, which means the
+    experience filter still has a description to read and no per-job detail
+    request is needed.
+
+    No posted date is exposed on the listing, so "posted" is left blank -- the
+    sheet's own Date added column still records when a role first showed up.
+    """
     out = []
+    seen = set()
     for q in SEARCH_QUERIES:
-        r = requests.get("https://careers.google.com/api/v3/search/",
-                         params={"q": q, "page_size": 100}, timeout=25, headers=REQ_HEADERS)
-        r.raise_for_status()
-        for j in r.json().get("jobs", []):
-            locs = j.get("locations") or []
-            loc = ", ".join(l.get("display", "") for l in locs if l.get("display"))
-            quals = j.get("qualifications", "")
-            if isinstance(quals, list):
-                quals = " ".join(quals)
-            out.append({
-                "title": j.get("title", ""),
-                "location": loc,
-                "url": j.get("apply_url") or "",
-                "posted": j.get("publish_date", ""),
-                "description": _join(_strip_html(j.get("description", "")), _strip_html(quals)),
-            })
+        for page in range(1, GOOGLE_MAX_PAGES + 1):
+            r = requests.get(GOOGLE_RESULTS_URL, params={"q": q, "page": page},
+                             timeout=25, headers=REQ_HEADERS)
+            r.raise_for_status()
+            page_html = r.text
+            cards = list(_G_CARD.finditer(page_html))
+            if not cards:
+                break
+            prev = 0
+            for m in cards:
+                body = page_html[prev:m.start()]
+                prev = m.end()
+                # Keep only the card's own <li>, so the page header above the
+                # first card can't leak its text into that card's description
+                # and trip the experience filter on unrelated numbers. Match
+                # '<li class="' specifically: the card container carries a
+                # class, while the qualification bullets inside it are bare
+                # <li>, and cutting at those would strip the location and all
+                # but the last bullet of the description.
+                cut = body.rfind('<li class="')
+                if cut != -1:
+                    body = body[cut:]
+                url = GOOGLE_BASE + m.group(1).split("?")[0]
+                if url in seen:
+                    continue
+                seen.add(url)
+                loc = _G_LOC.search(body)
+                out.append({
+                    "title": html.unescape(m.group(2)),
+                    "location": html.unescape(loc.group(1)) if loc else "",
+                    "url": url,
+                    "posted": "",
+                    "description": _strip_html(body),
+                })
+            if len(cards) < GOOGLE_PAGE_SIZE:
+                break
     return out
 
 
 def fetch_microsoft(c):
+    """Currently broken on Microsoft's side -- expect this to fail every run.
+
+    gcsservices.careers.microsoft.com is CNAME'd to an Azure Front Door
+    endpoint that serves a certificate for *.azureedge.net, so the TLS
+    handshake fails hostname verification. That is a misconfiguration only
+    Microsoft can fix, and working around it would mean disabling certificate
+    verification, which is not worth doing for a job scraper.
+
+    Their careers site has also moved to an Eightfold-hosted SPA
+    (apply.careers.microsoft.com) whose HTML contains no job data and whose
+    API answers 403 without a session, so there is no drop-in replacement to
+    scrape either. This is left in place, rather than deleted, so it recovers
+    on its own if Microsoft fixes the certificate; main() reports it as a
+    failed source on every run so the gap stays visible.
+    """
     out = []
     for q in SEARCH_QUERIES:
         r = requests.get("https://gcsservices.careers.microsoft.com/search/api/v1/search",
@@ -552,33 +708,77 @@ FETCHERS = {
 # ===========================================================================
 # Filtering
 # ===========================================================================
-def min_years_required(desc):
-    """Smallest number of years of experience a posting asks for.
+# Anything separating two digits that isn't a digit, a letter, or a plain
+# space: real dashes, but also the debris of an encoding mix-up. A page served
+# as UTF-8 and decoded as Latin-1 turns "0-2 years" into "0\xe2\x80\x932
+# years", and that matters more than it looks: the range pattern stops
+# matching, the bare "2 years" tail is read instead, and a posting advertising
+# itself as 0-2 years scores as a 2-year requirement. At a ceiling of 0 that
+# silently deletes exactly the entry-level roles this scraper exists to find.
+_DIGIT_GAP = re.compile(r"(?<=\d)[\s]*[-‐-―−\xe2\xc3\x80-\x9f~/]+[\s]*(?=\d)")
+
+
+def _normalize_ranges(text):
+    """Rewrite the separator in "0-2 years" to a plain hyphen."""
+    return _DIGIT_GAP.sub("-", text)
+
+
+def years_required(desc):
+    """Highest number of years of experience a posting demands.
 
     Returns None when the description says nothing about years, which includes
-    every source that ships no description at all (Workday, the New-Grad Feed).
-    Taking the *minimum* is deliberate: a posting listing "2+ years required,
-    5+ preferred" is judged on the 2, so we under-drop rather than over-drop.
+    every source shipping no description at all (Workday, the New-Grad Feed).
+
+    Takes the *highest* stated requirement on purpose. Figma's "Product Manager,
+    CMS" asks for "5+ years of experience as a full-time Product Manager" and
+    also mentions "2+ years" of something narrower; it is gated by the 5, so
+    judging it on the 2 lets a senior role through. Ranges are the exception and
+    contribute their floor, so "0-2 years" reads as 0 and survives.
+
+    Years an internship can satisfy are skipped rather than counted, so "1+
+    years of internship experience" does not read as a full-time requirement.
     """
     if not desc:
         return None
-    text = re.sub(r"\s+", " ", desc)
-    for pat in _YEARS_PATTERNS:
-        best = None
+    text = _normalize_ranges(re.sub(r"\s+", " ", desc))
+    best = None
+    claimed = []  # spans a requirement-shaped pattern has already adjudicated
+
+    def _consider(m, need_context):
+        nonlocal best
+        # Skip retrospective and forward-looking phrasing: "over the past 3
+        # years", "founded 10 years ago", "in the next 3 years".
+        if _BACKWARD_LOOKING.search(text[max(0, m.start() - 30):m.start()]):
+            return
+        if _COMPANY_HISTORY.search(text[max(0, m.start() - 80):m.start()]):
+            return
+        # "18 years of age" is an eligibility question, not experience.
+        if _AGE_CONTEXT.match(text[m.end():m.end() + 20]):
+            return
+        window = text[max(0, m.start() - 40):m.end() + 50]
+        if _INTERNSHIP_CONTEXT.search(window):
+            return
+        if need_context and not _EXPERIENCE_CONTEXT.search(window):
+            return
+        tok = m.group(1)
+        val = int(tok) if tok.isdigit() else _WORD_NUMBERS[tok.lower()]
+        if best is None or val > best:
+            best = val
+
+    # Requirement-shaped phrasings count anywhere; a bare "3 years" needs a
+    # nearby experience word to count at all.
+    for pat in _YEARS_EXPLICIT:
         for m in pat.finditer(text):
-            # Skip retrospective phrasing like "over the past 3 years".
-            if _BACKWARD_LOOKING.search(text[max(0, m.start() - 30):m.start()]):
-                continue
-            window = text[max(0, m.start() - 40):m.end() + 50]
-            if not _EXPERIENCE_CONTEXT.search(window):
-                continue
-            tok = m.group(1)
-            val = int(tok) if tok.isdigit() else _WORD_NUMBERS[tok.lower()]
-            if best is None or val < best:
-                best = val
-        if best is not None:
-            return best
-    return None
+            claimed.append((m.start(), m.end()))
+            _consider(m, need_context=False)
+    for m in _YEARS_BARE.finditer(text):
+        # A range is counted as its floor above, and its text ends in a bare
+        # "3 years" that this pattern would otherwise re-read -- and since the
+        # winner is the max, that would silently undo the floor.
+        if any(start < m.end() and m.start() < end for start, end in claimed):
+            continue
+        _consider(m, need_context=True)
+    return best
 
 
 def earliest_graduation_window(desc):
@@ -604,6 +804,40 @@ def earliest_graduation_window(desc):
         if best is None or cand < best:
             best = cand
     return best
+
+
+def _fetch_description(url):
+    """Best-effort: read a posting's text straight off its page.
+
+    Some sources ship listings with no description at all -- the New-Grad Feed
+    and Workday both do -- which blinds the experience filter: years_required()
+    finds nothing, returns None, and the role is kept no matter what it
+    actually requires. That is not a small gap. It is why roles deleted from
+    the sheet by hand reappear on the very next run, since the scraper cannot
+    see the requirement the deletion was based on.
+
+    Returns "" on any failure, which preserves the old keep-on-silence
+    behaviour rather than dropping a role because its page happened to 404.
+    """
+    try:
+        r = requests.get(url, timeout=20, headers=REQ_HEADERS)
+        if not r.ok:
+            return ""
+        # Sniff the encoding instead of taking the default. requests falls back
+        # to Latin-1 when a page declares no charset, which turns "0-2 years"
+        # into mojibake the range pattern can't read -- and a posting that
+        # advertises itself as entry level then scores as a 2-year requirement.
+        r.encoding = r.apparent_encoding or "utf-8"
+        return _strip_html(r.text)
+    except Exception:
+        return ""
+
+
+def passes_title(job):
+    """Title-only gate, split out of matches() so main() can apply it before
+    paying for a description fetch."""
+    title = (job.get("title") or "").lower()
+    return any(k in title for k in TITLE_INCLUDE) and not _title_excluded(title)
 
 
 def _title_excluded(title):
@@ -634,22 +868,20 @@ def is_priority_location(loc):
 
 
 def matches(job):
-    # Location is only a filter in one direction: Europe-only roles are dropped.
-    # Everywhere else is kept, and location otherwise just drives priority
-    # ranking (see is_priority_location).
+    # US-only: anything naming a country outside the US is dropped. A listing
+    # that names no country at all is kept (see is_non_us), and location
+    # otherwise drives priority ranking (see is_priority_location).
     title = (job.get("title") or "").lower()
     desc = (job.get("description") or "").lower()
 
-    if is_europe_only(job.get("location")):
+    if is_non_us(job.get("location")):
         return False
-    if not any(k in title for k in TITLE_INCLUDE):
-        return False
-    if _title_excluded(title):
+    if not passes_title(job):
         return False
     if any(p in desc for p in DESCRIPTION_EXCLUDE):
         return False
     if MAX_YEARS_EXPERIENCE is not None:
-        years = min_years_required(desc)
+        years = years_required(desc)
         if years is not None and years > MAX_YEARS_EXPERIENCE:
             return False
     if GRADUATED is not None:
@@ -678,7 +910,13 @@ def get_credentials():
     raise RuntimeError("Set GOOGLE_CREDENTIALS (JSON string) or GOOGLE_APPLICATION_CREDENTIALS (file path).")
 
 
-def get_worksheet():
+def get_worksheet(create=True):
+    """Open the tracker worksheet, creating it and its header row if missing.
+
+    Pass create=False for a read-only open (--dry-run): a missing worksheet
+    returns None and a missing header is left alone, so opening the sheet to
+    read existing URLs can't itself write to it.
+    """
     client = gspread.authorize(get_credentials())
     if SHEET_ID:
         sh = client.open_by_key(SHEET_ID)
@@ -689,10 +927,12 @@ def get_worksheet():
     try:
         ws = sh.worksheet(WORKSHEET_NAME)
     except gspread.WorksheetNotFound:
+        if not create:
+            return None
         ws = sh.add_worksheet(title=WORKSHEET_NAME, rows=5000, cols=len(HEADER))
     # gspread returns [[]] for an empty worksheet, which is truthy, so test for
     # real cell content instead of list emptiness.
-    if not any(cell for row in ws.get_all_values() for cell in row):
+    if create and not any(cell for row in ws.get_all_values() for cell in row):
         ws.append_row(HEADER, value_input_option="USER_ENTERED")
     return ws
 
@@ -741,21 +981,28 @@ def send_email(rows):
 # ===========================================================================
 # Main
 # ===========================================================================
-def main():
-    ws = get_worksheet()
-    existing_urls = set(ws.col_values(URL_COL))  # column F = URL
+def main(dry_run=False):
+    ws = get_worksheet(create=not dry_run)
+    if ws is None:
+        print("[dry-run] Worksheet does not exist yet; treating it as empty.")
+        existing_urls = set()
+    else:
+        existing_urls = set(ws.col_values(URL_COL))  # column G = URL
     today = datetime.date.today().isoformat()
     new_rows = []
 
+    failed = []
     for c in COMPANIES:
         fetcher = FETCHERS.get(c["ats"])
         if not fetcher:
             print(f"[warn] unknown ats '{c['ats']}' for {c['name']}, skipping")
+            failed.append((c["name"], f"unknown ats '{c['ats']}'"))
             continue
         try:
             jobs = fetcher(c)
         except Exception as e:
             print(f"[warn] {c['name']} ({c['ats']}) failed: {e}")
+            failed.append((c["name"], str(e).split("\n")[0][:120]))
             continue
 
         kept = 0
@@ -763,6 +1010,15 @@ def main():
             url = j.get("url") or ""
             if not url or url in existing_urls:
                 continue
+            # Gate on title and location first: both are free, and this keeps
+            # the fetch below to the handful of roles that could still qualify.
+            if not passes_title(j) or is_non_us(j.get("location")):
+                continue
+            # A listing with no description can't be judged on experience, so
+            # go get one. Without this, description-less sources bypass the
+            # experience filter entirely (see _fetch_description).
+            if not (j.get("description") or "").strip():
+                j["description"] = _fetch_description(url)
             if not matches(j):
                 continue
             prio = "Yes" if is_priority_location(j.get("location")) else ""
@@ -775,14 +1031,37 @@ def main():
     if new_rows:
         # Append priority roles first so they sit higher in the sheet.
         new_rows.sort(key=lambda r: r[PRIORITY_IDX] != "Yes")
-        ws.append_rows(new_rows, value_input_option="USER_ENTERED")
-        try:
-            send_email(new_rows)
-        except Exception as e:
-            print(f"[warn] email failed: {e}")
+        if dry_run:
+            print("\n--- would add ---")
+            for _added, posted, prio, company, title, location, url, _a in new_rows:
+                star = "* " if prio == "Yes" else "  "
+                when = f", posted {posted}" if posted else ""
+                print(f"{star}{company}: {title} ({location}{when})\n    {url}")
+        else:
+            ws.append_rows(new_rows, value_input_option="USER_ENTERED")
+            try:
+                send_email(new_rows)
+            except Exception as e:
+                print(f"[warn] email failed: {e}")
     n_prio = sum(1 for r in new_rows if r[PRIORITY_IDX] == "Yes")
-    print(f"Done. Added {len(new_rows)} new job(s) ({n_prio} priority).")
+    verb = "Would add" if dry_run else "Added"
+    print(f"\nDone. {verb} {len(new_rows)} new job(s) ({n_prio} priority).")
+    # A source that dies is caught above so one bad endpoint can't sink the
+    # run, but that also means coverage can quietly drop to zero for months.
+    # Say so out loud: "0 new jobs" and "0 new jobs because 2 sources are
+    # down" deserve very different reactions.
+    if failed:
+        print(f"\n[!] {len(failed)} of {len(COMPANIES)} source(s) FAILED and "
+              f"contributed nothing:")
+        for name, err in failed:
+            print(f"    - {name}: {err}")
+    if dry_run:
+        print("\nDry run: nothing was written to the sheet and no email was sent.")
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print what would be added without writing to the "
+                         "sheet or sending the digest email")
+    main(dry_run=ap.parse_args().dry_run)

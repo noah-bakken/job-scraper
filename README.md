@@ -17,13 +17,19 @@ appends new hits to a Google Sheet, and emails you a digest.
   default May 2026). "You will graduate in Fall 2026 or Spring 2027" is closed
   to a Spring 2026 grad. This is a date comparison, **not** a ban on
   internships: internships that accept recent grads still come through.
-- DROP: roles asking for more than `MAX_YEARS_EXPERIENCE` (default **2**) years
+- DROP: roles asking for more than `MAX_YEARS_EXPERIENCE` (default **0**) years
   of experience. Tuned for a May 2026 grad with internships but no full-time
-  experience, so "3+ years" is dropped and "1-2 years" is kept.
-- DROP: Europe-only roles, remote or on-site. A role that also lists a US
-  location is kept, so "San Francisco, New York, London" survives.
-- Location is otherwise NOT a filter. Roles anywhere else (Canada, LATAM, APAC)
-  are kept; preferred locations are just flagged and floated to the top.
+  experience, so any posting wanting real full-time years ("1+ years", "3+
+  years") is dropped, while "0-2 years" and internship-satisfiable requirements
+  are kept.
+- DROP: any role naming a country outside the US (`is_non_us`) — Europe,
+  Canada, LATAM, APAC, Middle East. A role that also lists a US location is
+  kept, so "San Francisco, New York, London" survives.
+- A listing that names no country at all (blank, or a bare "Remote") is KEPT.
+  The filter drops on a positive non-US signal rather than requiring a positive
+  US one, because `US_TERMS` doesn't recognize "SF" and `US_STATE_CODES` omits
+  ID/LA/IN/OR — requiring a US match would delete real US roles.
+- Preferred US locations are flagged and floated to the top of the sheet.
 
 Every rule is a plain list at the top of `scrape_jobs.py`
 (`TITLE_INCLUDE`, `TITLE_EXCLUDE_WORDS`, `DESCRIPTION_EXCLUDE`,
@@ -31,25 +37,50 @@ Every rule is a plain list at the top of `scrape_jobs.py`
 Edit freely.
 
 ### How the experience filter works
-`min_years_required()` parses the smallest number of years a posting asks for
-instead of matching phrase strings, so it handles "3+ years", "3-5 years",
-"at least three years" and "minimum of 3 yrs" with one rule. Compare that
-against `MAX_YEARS_EXPERIENCE` (default 2; set to `None` to disable).
+`years_required()` parses the years a posting demands instead of matching phrase
+strings, so it handles "3+ years", "3-5 years", "at least three years" and
+"minimum of 3 yrs" with one rule. Compare that against `MAX_YEARS_EXPERIENCE`
+(default 0; set to `None` to disable).
 
-Two deliberate choices:
-- It takes the **minimum**, so "2+ years required, 5+ preferred" is judged on
-  the 2. It under-drops rather than over-drops.
-- A **range keeps its floor**, so "1-3 years" reads as 1 and survives.
+Four deliberate choices:
+- It takes the **maximum**, so "5+ years as a full-time PM, 2+ years of
+  analytics" is judged on the 5 and a senior role can't sneak through on its
+  smaller secondary number.
+- A **range keeps its floor**, so "0-2 years" reads as 0 and survives. Ranges
+  are matched before bare numbers and their span is then excluded from the bare
+  pass, so the "2 years" tail can't be re-read and undo the floor.
+- **Internship years don't count.** A requirement an internship satisfies ("1+
+  years of internship experience", "1-2 years including internships") isn't a
+  full-time-years requirement, so it's skipped rather than counted.
+- **Company self-description doesn't count.** "We have been building this for 10
+  years" is history, not a requirement. This is the `been ... for N years` shape
+  specifically; "we are looking for 3+ years of experience" still counts.
+- **Age questions don't count.** "Are you at least 18 years of age?" is an
+  application-form field phrased exactly like a requirement. Common once full
+  posting pages are fetched, and it scored those roles as needing 18 years.
+- **Encoding is normalized first.** A page served as UTF-8 but decoded as
+  Latin-1 turns "0–2 years" into mojibake; the range then fails to match, the
+  bare "2 years" tail is read instead, and a posting advertising itself as
+  entry level scores as a 2-year requirement.
 
-It skips retrospective phrasing ("over the past 5 years we have grown",
-"founded 10 years ago") and requires the match to sit near a word like
+It also skips retrospective phrasing ("over the past 5 years we have grown",
+"founded 10 years ago") and requires a bare number to sit near a word like
 *experience* or *background*, so a "5 year vision" isn't mistaken for a
 requirement.
 
-**This filter can only act on postings that ship a description.** Workday
-carries none, and the New-Grad Feed carries none either — the feed is
-new-grad-by-construction, so that's mostly fine, but it does mean a
-higher-experience role slipping into that feed won't be caught here.
+At a ceiling of 0 the filter is strict by construction: every stated full-time
+year drops the posting, so a description that mentions years in some phrasing
+not covered above will over-drop. Raise `MAX_YEARS_EXPERIENCE` to 1 or 2 if the
+sheet starts looking thin.
+
+**Sources that ship no description get one fetched.** Workday and the New-Grad
+Feed both list roles with no description, which used to blind this filter
+entirely: `years_required()` saw nothing, returned `None`, and the role was
+kept regardless of what it actually required. That made hand-deleting such
+roles from the sheet pointless — they came back on the very next run. `main()`
+now calls `_fetch_description()` for any listing that arrives without one, but
+only after the free title and location gates, so it costs a handful of requests
+per run rather than thousands.
 
 ### Graduation windows
 `earliest_graduation_window()` pulls the graduation date a posting targets and

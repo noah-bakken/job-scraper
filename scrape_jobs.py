@@ -689,6 +689,11 @@ def fetch_newgrad_feed(c):
             # can lag the company's own posting date.
             "posted": j.get("date_posted", ""),
             "description": "",
+            # This source aggregates hundreds of employers, so the actual
+            # hiring company has to come from the row. Without it every entry
+            # lands in the sheet as "New-Grad Feed", which says where the role
+            # was found but not who is offering it.
+            "company": j.get("company_name", ""),
         })
     return out
 
@@ -1022,7 +1027,11 @@ def main(dry_run=False):
             if not matches(j):
                 continue
             prio = "Yes" if is_priority_location(j.get("location")) else ""
-            new_rows.append([today, _norm_date(j.get("posted")), prio, c["name"],
+            # Aggregator sources name the real employer per row; single-company
+            # sources don't set this and fall back to the source name, which is
+            # the company anyway.
+            company = (j.get("company") or "").strip() or c["name"]
+            new_rows.append([today, _norm_date(j.get("posted")), prio, company,
                              j["title"], j["location"], url, ""])
             existing_urls.add(url)
             kept += 1

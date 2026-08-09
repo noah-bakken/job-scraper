@@ -1068,9 +1068,31 @@ def main(dry_run=False):
         print("\nDry run: nothing was written to the sheet and no email was sent.")
 
 
+def send_test_email():
+    """Send a digest built from one fake row, to prove the mail path works.
+
+    The digest only goes out when a run finds something new, so a broken
+    SMTP_PASS or EMAIL_TO stays invisible for as long as the sheet happens to
+    be up to date -- and main() swallows send failures as warnings, so the run
+    still reports success. This exercises the same send_email() path on demand
+    so the alert channel can be verified without waiting for a new posting.
+    """
+    row = [datetime.date.today().isoformat(), "2026-08-09", "Yes",
+           "Test", "Test: if you can read this, email works",
+           "San Francisco, CA", "https://example.com/test-email", ""]
+    send_email([row])
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true",
                     help="print what would be added without writing to the "
                          "sheet or sending the digest email")
-    main(dry_run=ap.parse_args().dry_run)
+    ap.add_argument("--test-email", action="store_true",
+                    help="send a single sample digest and exit, to verify "
+                         "SMTP_USER / SMTP_PASS / EMAIL_TO actually work")
+    args = ap.parse_args()
+    if args.test_email:
+        send_test_email()
+    else:
+        main(dry_run=args.dry_run)

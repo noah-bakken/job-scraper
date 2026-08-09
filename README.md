@@ -164,6 +164,19 @@ and fill `tenant` / `wd_host` (wdN) / `site` by hand.
 5. Runs every 20 minutes automatically. Test now via Actions → Scrape jobs →
    Run workflow. Email only sends when there's something new.
 
+### Verifying the email actually works
+Because the digest only goes out when a run finds something new, a wrong
+`SMTP_PASS` or `EMAIL_TO` stays invisible while the sheet happens to be current
+— and a send failure is caught and logged as a warning, so the run still passes.
+To test the channel on demand, run Actions → Scrape jobs → Run workflow with
+**Send a sample digest** checked (or `python scrape_jobs.py --test-email`
+locally). It sends one fake role and scrapes nothing.
+
+A quiet inbox is usually not a broken scraper. Every posting is deduped on URL,
+so once the sheet is caught up you only hear about genuinely new listings —
+which, at `MAX_YEARS_EXPERIENCE = 0`, is a slow trickle. Check the Actions log:
+`Added 0 new job(s)` with sources reporting matches means it's working.
+
 ## Cost and cadence
 Free. Make the repo **public** for unlimited Actions minutes (secrets stay
 private either way). 20 minutes keeps worst-case detection well under an hour,

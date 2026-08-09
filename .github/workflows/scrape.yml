@@ -5,7 +5,12 @@ on:
     # Every 20 minutes. Keeps detection lag under an hour even if the platform
     # delays a run. Times are UTC.
     - cron: "*/20 * * * *"
-  workflow_dispatch: {}   # manual "Run workflow" button for testing
+  workflow_dispatch:      # manual "Run workflow" button for testing
+    inputs:
+      test_email:
+        description: "Send a sample digest instead of scraping, to verify email works"
+        type: boolean
+        default: false
 
 # Prevent overlapping runs if one is slow.
 concurrency:
@@ -33,4 +38,4 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-        run: python scrape_jobs.py
+        run: python scrape_jobs.py ${{ inputs.test_email && '--test-email' || '' }}

@@ -37,17 +37,105 @@ from google.oauth2.service_account import Credentials
 #   greenhouse / lever / ashby -> needs "slug"
 #   workday                    -> needs "tenant", "wd_host", "site"
 #   amazon / google / microsoft -> no slug (single known endpoint)
+# Every slug below was probed live and confirmed to return real postings for
+# the company it is named after -- not just to return 200. That check matters:
+# the greenhouse "disney" board is a stub whose only posting is titled "MASTER
+# TEMPLATE", and lever "capital" is not Capital One. Both were rejected here.
 COMPANIES = [
-    # --- Reliable ATS core (verify slugs with find_source.py) ---
-    {"name": "Figma",      "ats": "greenhouse", "slug": "figma"},
-    {"name": "Databricks", "ats": "greenhouse", "slug": "databricks"},
-    {"name": "Coinbase",   "ats": "greenhouse", "slug": "coinbase"},
-    {"name": "Robinhood",  "ats": "greenhouse", "slug": "robinhood"},
-    {"name": "Reddit",     "ats": "greenhouse", "slug": "reddit"},
-    {"name": "Duolingo",   "ats": "greenhouse", "slug": "duolingo"},
-    {"name": "Brex",       "ats": "greenhouse", "slug": "brex"},
-    {"name": "Ramp",       "ats": "ashby",      "slug": "ramp"},
-    {"name": "Notion",     "ats": "ashby",      "slug": "notion"},
+    # --- AI / ML ---
+    {"name": "Anthropic",   "ats": "greenhouse", "slug": "anthropic"},
+    {"name": "OpenAI",      "ats": "ashby",      "slug": "openai"},
+    {"name": "Scale AI",    "ats": "greenhouse", "slug": "scaleai"},
+    {"name": "Perplexity",  "ats": "ashby",      "slug": "perplexity"},
+    {"name": "Cohere",      "ats": "ashby",      "slug": "cohere"},
+    {"name": "Together AI", "ats": "greenhouse", "slug": "togetherai"},
+    {"name": "Sierra",      "ats": "ashby",      "slug": "sierra"},
+    {"name": "Harvey",      "ats": "ashby",      "slug": "harvey"},
+    {"name": "Replit",      "ats": "ashby",      "slug": "replit"},
+    {"name": "Modal",       "ats": "ashby",      "slug": "modal"},
+    {"name": "Baseten",     "ats": "ashby",      "slug": "baseten"},
+    {"name": "ElevenLabs",  "ats": "ashby",      "slug": "elevenlabs"},
+    {"name": "Character.AI", "ats": "ashby",     "slug": "character"},
+    {"name": "Pinecone",    "ats": "ashby",      "slug": "pinecone"},
+
+    # --- Fintech ---
+    {"name": "Stripe",      "ats": "greenhouse", "slug": "stripe"},
+    {"name": "Plaid",       "ats": "ashby",      "slug": "plaid"},
+    {"name": "Chime",       "ats": "greenhouse", "slug": "chime"},
+    {"name": "Affirm",      "ats": "greenhouse", "slug": "affirm"},
+    {"name": "Marqeta",     "ats": "greenhouse", "slug": "marqeta"},
+    {"name": "Mercury",     "ats": "greenhouse", "slug": "mercury"},
+    {"name": "Betterment",  "ats": "greenhouse", "slug": "betterment"},
+    {"name": "Carta",       "ats": "greenhouse", "slug": "carta"},
+    {"name": "Gusto",       "ats": "greenhouse", "slug": "gusto"},
+    {"name": "Airwallex",   "ats": "ashby",      "slug": "airwallex"},
+    {"name": "Wealthfront", "ats": "lever",      "slug": "wealthfront"},
+    {"name": "Block",       "ats": "greenhouse", "slug": "block"},
+    {"name": "Brex",        "ats": "greenhouse", "slug": "brex"},
+    {"name": "Ramp",        "ats": "ashby",      "slug": "ramp"},
+    {"name": "Coinbase",    "ats": "greenhouse", "slug": "coinbase"},
+    {"name": "Robinhood",   "ats": "greenhouse", "slug": "robinhood"},
+    # greenhouse "figure" is Figure Lending (Reno fintech), not Figure AI.
+    {"name": "Figure Lending", "ats": "greenhouse", "slug": "figure"},
+
+    # --- Dev tools / infra / SaaS ---
+    {"name": "Figma",       "ats": "greenhouse", "slug": "figma"},
+    {"name": "Databricks",  "ats": "greenhouse", "slug": "databricks"},
+    {"name": "Notion",      "ats": "ashby",      "slug": "notion"},
+    {"name": "Vercel",      "ats": "greenhouse", "slug": "vercel"},
+    {"name": "Netlify",     "ats": "greenhouse", "slug": "netlify"},
+    {"name": "Linear",      "ats": "ashby",      "slug": "linear"},
+    {"name": "Airtable",    "ats": "greenhouse", "slug": "airtable"},
+    {"name": "Asana",       "ats": "greenhouse", "slug": "asana"},
+    {"name": "Amplitude",   "ats": "greenhouse", "slug": "amplitude"},
+    {"name": "Postman",     "ats": "greenhouse", "slug": "postman"},
+    {"name": "Datadog",     "ats": "greenhouse", "slug": "datadog"},
+    {"name": "Confluent",   "ats": "ashby",      "slug": "confluent"},
+    {"name": "GitLab",      "ats": "greenhouse", "slug": "gitlab"},
+    {"name": "Sentry",      "ats": "ashby",      "slug": "sentry"},
+    {"name": "Grafana Labs", "ats": "greenhouse", "slug": "grafanalabs"},
+    {"name": "Supabase",    "ats": "ashby",      "slug": "supabase"},
+    {"name": "Render",      "ats": "ashby",      "slug": "render"},
+    {"name": "Cloudflare",  "ats": "greenhouse", "slug": "cloudflare"},
+    {"name": "Snowflake",   "ats": "ashby",      "slug": "snowflake"},
+    {"name": "MongoDB",     "ats": "greenhouse", "slug": "mongodb"},
+    {"name": "Elastic",     "ats": "greenhouse", "slug": "elastic"},
+    {"name": "Okta",        "ats": "greenhouse", "slug": "okta"},
+    {"name": "Twilio",      "ats": "greenhouse", "slug": "twilio"},
+    {"name": "PlanetScale", "ats": "greenhouse", "slug": "planetscale"},
+    {"name": "Temporal",    "ats": "ashby",      "slug": "temporal"},
+    {"name": "Vanta",       "ats": "ashby",      "slug": "vanta"},
+    {"name": "Webflow",     "ats": "greenhouse", "slug": "webflow"},
+    {"name": "Miro",        "ats": "ashby",      "slug": "miro"},
+    {"name": "Dropbox",     "ats": "greenhouse", "slug": "dropbox"},
+    {"name": "Palantir",    "ats": "lever",      "slug": "palantir"},
+
+    # --- Consumer / marketplace ---
+    {"name": "Airbnb",      "ats": "greenhouse", "slug": "airbnb"},
+    {"name": "Instacart",   "ats": "greenhouse", "slug": "instacart"},
+    {"name": "Lyft",        "ats": "greenhouse", "slug": "lyft"},
+    {"name": "Pinterest",   "ats": "greenhouse", "slug": "pinterest"},
+    {"name": "Discord",     "ats": "greenhouse", "slug": "discord"},
+    {"name": "Spotify",     "ats": "lever",      "slug": "spotify"},
+    {"name": "Roblox",      "ats": "greenhouse", "slug": "roblox"},
+    {"name": "Twitch",      "ats": "greenhouse", "slug": "twitch"},
+    {"name": "Reddit",      "ats": "greenhouse", "slug": "reddit"},
+    {"name": "Duolingo",    "ats": "greenhouse", "slug": "duolingo"},
+    {"name": "Strava",      "ats": "ashby",      "slug": "strava"},
+    {"name": "Thumbtack",   "ats": "ashby",      "slug": "thumbtack"},
+    {"name": "Faire",       "ats": "greenhouse", "slug": "faire"},
+    {"name": "Squarespace", "ats": "greenhouse", "slug": "squarespace"},
+    {"name": "Patreon",     "ats": "ashby",      "slug": "patreon"},
+    {"name": "Substack",    "ats": "ashby",      "slug": "substack"},
+
+    # --- Health / bio ---
+    {"name": "Oscar Health",    "ats": "greenhouse", "slug": "oscar"},
+    {"name": "Ro",              "ats": "lever",      "slug": "ro"},
+    {"name": "Hims & Hers",     "ats": "ashby",      "slug": "hims-and-hers"},
+    {"name": "Included Health", "ats": "lever",      "slug": "includedhealth"},
+    {"name": "Benchling",       "ats": "ashby",      "slug": "benchling"},
+    {"name": "Color Health",    "ats": "ashby",      "slug": "color-health"},
+    {"name": "Komodo Health",   "ats": "greenhouse", "slug": "komodohealth"},
 
     # --- Broad "search anything" feed: a maintained new-grad list spanning
     #     hundreds of companies (startups + big cos), with apply links. This is
@@ -59,14 +147,23 @@ COMPANIES = [
     {"name": "Google",    "ats": "google"},
     {"name": "Microsoft", "ats": "microsoft"},
 
-    # --- Workday companies: fill tenant/wd_host/site from the careers URL. ---
+    # --- Workday: big employers that aren't on Greenhouse/Lever/Ashby. ---
     # A Workday careers URL looks like:
     #   https://TENANT.wdN.myworkdayjobs.com/SITE
-    # e.g. https://salesforce.wd12.myworkdayjobs.com/External_Career_Site
-    #   -> tenant="salesforce", wd_host="wd12", site="External_Career_Site"
-    # Uncomment and fill each one you want:
-    # {"name": "Salesforce", "ats": "workday", "tenant": "salesforce", "wd_host": "wd12", "site": "External_Career_Site"},
-    # {"name": "Adobe",      "ats": "workday", "tenant": "adobe",      "wd_host": "wd5",  "site": "external_experienced"},
+    # Each of these was confirmed against the same CXS endpoint fetch_workday()
+    # calls. Workday ships no description, so these lean on _fetch_description().
+    {"name": "Salesforce", "ats": "workday", "tenant": "salesforce", "wd_host": "wd12", "site": "External_Career_Site"},
+    {"name": "Adobe",      "ats": "workday", "tenant": "adobe",      "wd_host": "wd5",  "site": "external_experienced"},
+    {"name": "Nvidia",     "ats": "workday", "tenant": "nvidia",     "wd_host": "wd5",  "site": "NVIDIAExternalCareerSite"},
+    {"name": "PayPal",     "ats": "workday", "tenant": "paypal",     "wd_host": "wd1",  "site": "jobs"},
+    {"name": "eBay",       "ats": "workday", "tenant": "ebay",       "wd_host": "wd5",  "site": "apply"},
+    {"name": "Mastercard", "ats": "workday", "tenant": "mastercard", "wd_host": "wd1",  "site": "CorporateCareers"},
+    {"name": "Autodesk",   "ats": "workday", "tenant": "autodesk",   "wd_host": "wd1",  "site": "Ext"},
+    {"name": "Workday",    "ats": "workday", "tenant": "workday",    "wd_host": "wd5",  "site": "Workday"},
+    {"name": "T-Mobile",   "ats": "workday", "tenant": "tmobile",    "wd_host": "wd1",  "site": "External"},
+    {"name": "Zillow",     "ats": "workday", "tenant": "zillow",     "wd_host": "wd5",  "site": "Zillow_Group_External"},
+    {"name": "Comcast",    "ats": "workday", "tenant": "comcast",    "wd_host": "wd5",  "site": "Comcast_Careers"},
+    {"name": "Target",     "ats": "workday", "tenant": "target",     "wd_host": "wd5",  "site": "targetcareers"},
 ]
 
 # A title must contain one of these (case-insensitive) to be a match.
@@ -838,11 +935,39 @@ def _fetch_description(url):
         return ""
 
 
+# "apm" and "tpm" are the only TITLE_INCLUDE entries short enough to be someone
+# else's acronym, and both collide with product names on boards now being
+# watched: APM is Application Performance Monitoring (Datadog, Grafana, Sentry,
+# Elastic, Confluent all sell one) and TPM is Trusted Platform Module on
+# hardware boards like Nvidia's. Matched as whole words, and a title that
+# matched *only* on one of these is rejected if it also reads as an engineering
+# role -- "Manager I, Engineering - APM Serverless" is not a product job.
+TITLE_ACRONYMS = {"apm", "tpm"}
+ACRONYM_FALSE_FRIENDS = [
+    "engineering", "engineer", "software", "serverless", "observability",
+    "monitoring", "firmware", "silicon", "platform module",
+]
+
+
 def passes_title(job):
     """Title-only gate, split out of matches() so main() can apply it before
     paying for a description fetch."""
     title = (job.get("title") or "").lower()
-    return any(k in title for k in TITLE_INCLUDE) and not _title_excluded(title)
+    if _title_excluded(title):
+        return False
+    matched = set()
+    for k in TITLE_INCLUDE:
+        if k in TITLE_ACRONYMS:
+            if re.search(rf"\b{re.escape(k)}\b", title):
+                matched.add(k)
+        elif k in title:
+            matched.add(k)
+    if not matched:
+        return False
+    # Only a bare acronym carried the match, so make sure it's really ours.
+    if matched <= TITLE_ACRONYMS:
+        return not any(w in title for w in ACRONYM_FALSE_FRIENDS)
+    return True
 
 
 def _title_excluded(title):

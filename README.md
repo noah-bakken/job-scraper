@@ -115,17 +115,38 @@ the top of each email where priority roles are listed first.
 
 ## Sources
 
+100 sources, ~17,700 listings a run, about 5 minutes.
+
 | Source | What it is | Reliability | Config |
 |--------|-----------|-------------|--------|
 | **New-Grad Feed** | Maintained list across hundreds of companies (startups + big cos) with apply links. The wide net. | Solid | none |
-| Greenhouse / Lever / Ashby | Named companies you want followed closely | Solid | `slug` |
-| Workday | Salesforce, Adobe, Cisco, Nvidia, etc. | Good | `tenant`, `wd_host`, `site` |
-| Amazon / Google / Microsoft | Their own search endpoints | Best-effort | none |
+| Greenhouse / Lever / Ashby | 84 named companies, followed closely | Solid | `slug` |
+| Workday | 12 big employers not on the above: Salesforce, Adobe, Nvidia, PayPal, eBay, Mastercard, Autodesk, Workday, T-Mobile, Zillow, Comcast, Target | Good | `tenant`, `wd_host`, `site` |
+| Amazon / Google | Their own search endpoints | Best-effort | none |
+| Microsoft | Broken upstream, see Known limits | Failing | none |
+
+The named companies span AI/ML (Anthropic, OpenAI, Scale AI, Perplexity, Cohere,
+Sierra, Harvey, Replit, ElevenLabs…), fintech (Stripe, Plaid, Chime, Affirm,
+Mercury, Carta, Gusto, Block…), dev tools and infra (Figma, Databricks, Notion,
+Vercel, Linear, Datadog, Cloudflare, Snowflake, MongoDB, GitLab, Palantir…),
+consumer (Airbnb, Instacart, Lyft, Pinterest, Discord, Spotify, Roblox…), and
+health (Oscar, Ro, Hims & Hers, Benchling…).
 
 The New-Grad Feed does the broad "search everything" work. The per-company
-sources add depth for places you specifically care about. Amazon/Google/Microsoft
+sources add depth for places you specifically care about. Amazon/Google
 endpoints are undocumented and may need occasional patching. Each source is
 isolated: if one fails, the run logs a warning and continues.
+
+**LinkedIn and Indeed are deliberately absent.** Indeed answers `403` to
+automated requests and retired its public job API to partners only. LinkedIn's
+guest search is reachable but its terms prohibit scraping, its cards carry no
+description (which both the experience and graduation filters need, so every
+card would need a second fetch — exactly the volume that trips its authwall),
+and GitHub's datacenter IPs are the first thing it rate-limits. Both are mostly
+indexes of the same Greenhouse/Lever/Ashby/Workday postings read directly above,
+where the data is better: exact dates, direct apply links, full descriptions, no
+ghost-job reposts. To cover companies posting *only* there, use their own job
+alert emails as a separate channel.
 
 ## Filling in companies
 
@@ -135,9 +156,24 @@ python find_source.py "Scale AI" "Vercel" "Plaid"
 ```
 Paste the printed lines into `COMPANIES`.
 
+**Confirm the board is who you think it is before pasting.** `find_source.py`
+reports the first slug that returns postings, and a slug that resolves is not a
+slug that belongs to your company: the greenhouse `disney` board is a stub whose
+only listing is titled "MASTER TEMPLATE", lever `capital` is not Capital One,
+and greenhouse `figure` is Figure Lending, not Figure AI. Open the printed board
+and read a posting or two.
+
 ### Workday
 Open the careers page, read the URL `https://TENANT.wdN.myworkdayjobs.com/SITE`,
-and fill `tenant` / `wd_host` (wdN) / `site` by hand.
+and fill `tenant` / `wd_host` (wdN) / `site` by hand. If the careers page is a
+JavaScript app that never shows that URL, POST to the API directly to confirm a
+guess — that is the exact call the scraper makes:
+```bash
+curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"appliedFacets":{},"limit":20,"offset":0,"searchText":"product manager"}' \
+  https://TENANT.wdN.myworkdayjobs.com/wday/cxs/TENANT/SITE/jobs | head -c 400
+```
+Real `jobPostings` in the response means the combination is right.
 
 ## One-time setup
 
@@ -210,3 +246,9 @@ python scrape_jobs.py
   are title-only there.
 - Filters are keyword-based. If a good role gets dropped, remove the phrase that
   caught it; if noise gets in, add a phrase.
+- `apm` and `tpm` in `TITLE_INCLUDE` are matched as whole words, and a title
+  that matched on nothing but one of those acronyms is rejected if it also
+  contains an `ACRONYM_FALSE_FRIENDS` word. APM is Application Performance
+  Monitoring at Datadog, Grafana, Sentry, Elastic and Confluent, and TPM is
+  Trusted Platform Module on hardware boards — without the guard, "Manager I,
+  Engineering - APM Serverless" reads as an APM role.

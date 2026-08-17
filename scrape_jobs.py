@@ -19,6 +19,7 @@ import re
 import ssl
 import html
 import json
+import time
 import smtplib
 import argparse
 import datetime
@@ -180,10 +181,37 @@ TITLE_INCLUDE = [
     "product ops",
     "junior product manager",
     "product owner",
+    "associate project manager",
+    "associate program manager",
 ]
 # Note on "Associate Product ___": we don't list "associate product" on its own,
 # because it also catches "Associate Product Engineer/Designer". "Associate
 # Product Manager/Analyst/Owner" already match via the phrases above.
+#
+# Note on "associate project/program manager": deliberately NOT bare "project
+# manager" / "program manager" -- those alone pull in a lot of roles that
+# aren't entry level (construction PMs, "Program Manager IV") without saying
+# "senior" anywhere in the title for TITLE_EXCLUDE_WORDS to catch. Requiring
+# "associate" keeps this to the entry-level rotational-style roles you
+# actually want, matching "technical program manager"/"tpm" already above.
+
+# Titles matching one of these read as the core ask -- straight-up entry-level
+# product management, analyst, owner, or ops work -- and are ranked above
+# every other TITLE_INCLUDE match (technical program manager, associate
+# project manager, associate program manager) when sorting the sheet and the
+# email digest. All are still KEPT either way; this only affects ordering.
+TITLE_INCLUDE_CORE = [
+    "product manager",
+    "associate product manager",
+    "apm",
+    "product management",
+    "rotational product",
+    "product analyst",
+    "product operations",
+    "product ops",
+    "junior product manager",
+    "product owner",
+]
 
 # A title is rejected if it contains any of these. Note: NO intern/co-op here,
 # because you want grad-eligible internships kept.
@@ -245,6 +273,29 @@ MAX_YEARS_EXPERIENCE = 0
 # internships and co-ops accept recent grads, and those keep whatever window
 # they state, so they still come through. Set to None to disable.
 GRADUATED = (2026, 5)
+
+# Drop a role if its own posted date is older than this many days -- you want
+# only genuinely new postings, not old ones sitting in the feed. Set to None
+# to disable.
+#
+# This only ever looks at a date the SOURCE supplied. Workday and the
+# New-Grad Feed give none (see the "Date posted" note in Known limits), Google
+# and Microsoft give none either, and _norm_date() already normalizes a
+# missing/unparseable date to "" -- so this filter never touches any of them,
+# and they keep contributing every currently-open match regardless of age,
+# exactly as before. Only Greenhouse (first_published), Ashby (publishedAt)
+# and Amazon (posted_date) are ever judged against this ceiling.
+#
+# Caveat worth knowing up front, from the same Known limits section: even a
+# "real" date from those three is a first-posted date, not "currently open
+# since." A company that recycles one requisition every hiring cycle never
+# updates it, so a role that is genuinely open today can still read as older
+# than this ceiling and get dropped here (the README's own Databricks
+# "Summer 2027 internship posted 2023" example). That is a real, accepted
+# trade for this filter existing at all: a handful of false drops on recycled
+# listings, in exchange for the sheet not filling up with months-old reposts.
+# Raise the number, or set to None, if the sheet starts looking too thin.
+MAX_POSTING_AGE_DAYS = 45
 
 _SEASON_MONTH = {"winter": 1, "spring": 5, "summer": 7, "fall": 9, "autumn": 9}
 # A year only counts as a graduation window if graduation-ish words sit near it,
@@ -449,6 +500,7 @@ HEADER = ["Date added", "Date posted", "Priority", "Company", "Title", "Location
           "URL", "Applied?"]
 URL_COL = 7       # column G holds the URL (used for dedup)
 PRIORITY_IDX = 2  # index of the Priority cell within a row
+TITLE_IDX = 4     # index of the Title cell within a row
 
 # Email (all read from env / GitHub secrets; email is skipped if unset)
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
@@ -510,6 +562,20 @@ def _norm_date(value):
         except ValueError:
             continue
     return ""
+
+
+def is_stale(posted_norm):
+    """True if a normalized YYYY-MM-DD posted date is older than
+    MAX_POSTING_AGE_DAYS. A blank date -- the source gave nothing usable, or
+    gives no date at all -- is never stale, since there's nothing to judge it
+    against; see MAX_POSTING_AGE_DAYS for which sources that covers."""
+    if MAX_POSTING_AGE_DAYS is None or not posted_norm:
+        return False
+    try:
+        posted = datetime.date.fromisoformat(posted_norm)
+    except ValueError:
+        return False
+    return (datetime.date.today() - posted).days > MAX_POSTING_AGE_DAYS
 
 
 def _has_term(text, terms, codes):
@@ -970,6 +1036,22 @@ def passes_title(job):
     return True
 
 
+def is_core_title(title):
+    """True if the title matches TITLE_INCLUDE_CORE -- the roles called out as
+    highest priority (product manager/analyst/owner/ops), as opposed to the
+    rest of TITLE_INCLUDE (technical program manager, associate project/
+    program manager) that are wanted but rank behind those. Ranking only --
+    passes_title() already gated on the full TITLE_INCLUDE above."""
+    title = (title or "").lower()
+    for k in TITLE_INCLUDE_CORE:
+        if k in TITLE_ACRONYMS:
+            if re.search(rf"\b{re.escape(k)}\b", title):
+                return True
+        elif k in title:
+            return True
+    return False
+
+
 def _title_excluded(title):
     t = title.lower()
     for w in TITLE_EXCLUDE_WORDS:
@@ -1024,6 +1106,27 @@ def matches(job):
 # ===========================================================================
 # Google Sheets
 # ===========================================================================
+def _gspread_retry(fn, *args, **kwargs):
+    """Retry a gspread call through a transient Google API outage.
+
+    Every failed run so far (3 for 3, per the Actions log) died on the same
+    error -- a 503 "The service is currently unavailable" from Google's side,
+    not a bug here -- at whatever gspread call happened to run first. A short
+    retry with backoff turns that into a slower success instead of a lost
+    20-minute cycle.
+    """
+    delays = (2, 5, 10)
+    for i, delay in enumerate(delays):
+        try:
+            return fn(*args, **kwargs)
+        except gspread.exceptions.APIError as e:
+            status = e.response.status_code
+            if status not in (500, 502, 503, 504) or i == len(delays) - 1:
+                raise
+            print(f"[warn] Google API {status}, retrying in {delay}s...")
+            time.sleep(delay)
+
+
 def get_credentials():
     # drive.readonly is only exercised by the open-by-name fallback below; the
     # SHEET_ID path never touches Drive.
@@ -1040,6 +1143,18 @@ def get_credentials():
     raise RuntimeError("Set GOOGLE_CREDENTIALS (JSON string) or GOOGLE_APPLICATION_CREDENTIALS (file path).")
 
 
+def get_spreadsheet():
+    """Open the spreadsheet itself (not a specific worksheet), so callers that
+    need more than one tab -- the job tracker and the page watch -- don't each
+    authorize and open it separately."""
+    client = gspread.authorize(get_credentials())
+    if SHEET_ID:
+        return _gspread_retry(client.open_by_key, SHEET_ID)
+    # Name lookup goes through the Drive API, which must be enabled on the
+    # Cloud project. Set SHEET_ID to skip it.
+    return _gspread_retry(client.open, SHEET_NAME)
+
+
 def get_worksheet(create=True):
     """Open the tracker worksheet, creating it and its header row if missing.
 
@@ -1047,24 +1162,165 @@ def get_worksheet(create=True):
     returns None and a missing header is left alone, so opening the sheet to
     read existing URLs can't itself write to it.
     """
-    client = gspread.authorize(get_credentials())
-    if SHEET_ID:
-        sh = client.open_by_key(SHEET_ID)
-    else:
-        # Name lookup goes through the Drive API, which must be enabled on the
-        # Cloud project. Set SHEET_ID to skip it.
-        sh = client.open(SHEET_NAME)
+    sh = get_spreadsheet()
     try:
-        ws = sh.worksheet(WORKSHEET_NAME)
+        ws = _gspread_retry(sh.worksheet, WORKSHEET_NAME)
     except gspread.WorksheetNotFound:
         if not create:
             return None
-        ws = sh.add_worksheet(title=WORKSHEET_NAME, rows=5000, cols=len(HEADER))
+        ws = _gspread_retry(sh.add_worksheet, title=WORKSHEET_NAME, rows=5000, cols=len(HEADER))
     # gspread returns [[]] for an empty worksheet, which is truthy, so test for
     # real cell content instead of list emptiness.
-    if create and not any(cell for row in ws.get_all_values() for cell in row):
-        ws.append_row(HEADER, value_input_option="USER_ENTERED")
+    if create and not any(cell for row in _gspread_retry(ws.get_all_values) for cell in row):
+        _gspread_retry(ws.append_row, HEADER, value_input_option="USER_ENTERED")
     return ws
+
+
+# ===========================================================================
+# Page watch -- non-job pages you want to hear about the instant they change,
+# checked on the same run as the job scrape so "asap" means "within 20 min"
+# rather than needing a second workflow.
+# ===========================================================================
+# Each entry is fetched, stripped to plain text, and sliced to the window
+# between "start" and "end" (case-sensitive, first match of each -- see
+# fetch_watch_text). That scoping is what lets this watch a single card on a
+# page with several --
+# Synchrony's /programs/ page also has an Externship and a Summer Internship
+# card, and without scoping, an edit to either of those would trigger a false
+# alert for the Full-Time BLP watch. Omit "end" to watch to the end of the
+# page; omit both to watch the whole page.
+PAGE_WATCHES = [
+    {
+        "label": "Synchrony Full-Time BLP",
+        "url": "https://www.synchronyuniversity.com/programs/",
+        "start": "FULL-TIME BLP",
+        "end": "Summer Internship",
+    },
+]
+PAGE_WATCH_WORKSHEET = "Page Watch"
+PAGE_WATCH_HEADER = ["Label", "URL", "Last checked", "Last changed", "Snapshot"]
+
+
+def fetch_watch_text(w):
+    """Fetch a PAGE_WATCHES entry and return its watched window as plain text.
+
+    Returns None when "start" is given but not found on the page -- a fetch
+    hiccup (an error page, a loading skeleton) or a site redesign that moved
+    the marker. Either way the honest move is to skip the comparison for this
+    run rather than diff against a garbage snapshot and fire a false alert.
+    """
+    r = requests.get(w["url"], timeout=25, headers=REQ_HEADERS)
+    r.raise_for_status()
+    r.encoding = r.apparent_encoding or "utf-8"
+    text = _strip_html(r.text)
+    start = w.get("start")
+    if not start:
+        return text
+    # Case-SENSITIVE on purpose: Synchrony's page also mentions "the Full-Time
+    # BLP" in title case in its intro paragraph, well before the all-caps
+    # "FULL-TIME BLP" card header this watch actually wants. A case-insensitive
+    # match would lock onto that first, unrelated mention instead.
+    m = re.search(re.escape(start), text)
+    if not m:
+        return None
+    window = text[m.start():]
+    end = w.get("end")
+    if end:
+        m2 = re.search(re.escape(end), window[len(start):])
+        if m2:
+            window = window[:len(start) + m2.start()]
+    return window.strip()
+
+
+def get_page_watch_worksheet(sh, create=True):
+    """Open the page-watch worksheet, creating it and its header if missing.
+    Mirrors get_worksheet()'s create=False contract for --dry-run."""
+    try:
+        ws = _gspread_retry(sh.worksheet, PAGE_WATCH_WORKSHEET)
+    except gspread.WorksheetNotFound:
+        if not create:
+            return None
+        ws = _gspread_retry(sh.add_worksheet, title=PAGE_WATCH_WORKSHEET, rows=100,
+                            cols=len(PAGE_WATCH_HEADER))
+        _gspread_retry(ws.append_row, PAGE_WATCH_HEADER, value_input_option="USER_ENTERED")
+    return ws
+
+
+def check_page_watches(dry_run=False):
+    """Check every PAGE_WATCHES entry against its last known snapshot and
+    email when one has changed. A watch with no prior snapshot (first run, or
+    a newly added entry) just records a baseline -- there is nothing to alert
+    on yet, since nothing has actually changed.
+    """
+    if not PAGE_WATCHES:
+        return
+    sh = get_spreadsheet()
+    ws = get_page_watch_worksheet(sh, create=not dry_run)
+    rows = _gspread_retry(ws.get_all_values) if ws else []
+    existing = {r[0]: r for r in rows[1:] if r}  # label -> row
+    today = datetime.date.today().isoformat()
+
+    for w in PAGE_WATCHES:
+        label = w["label"]
+        try:
+            text = fetch_watch_text(w)
+        except Exception as e:
+            print(f"[warn] page watch '{label}' failed: {e}")
+            continue
+        if text is None:
+            print(f"[warn] page watch '{label}': marker not found on page, "
+                  f"skipping this run")
+            continue
+
+        prev = existing.get(label)
+        prev_snapshot = prev[4] if prev and len(prev) > 4 else None
+        changed = prev_snapshot is not None and prev_snapshot != text
+
+        if prev_snapshot is None:
+            print(f"[page watch] '{label}': establishing baseline, no alert.")
+        elif changed:
+            print(f"[page watch] '{label}': CHANGED.")
+            if not dry_run:
+                try:
+                    send_page_watch_email(label, w["url"], text)
+                except Exception as e:
+                    print(f"[warn] page watch email failed: {e}")
+        else:
+            print(f"[page watch] '{label}': no change.")
+
+        if dry_run:
+            continue
+        last_changed = today if changed else (prev[3] if prev and len(prev) > 3 else "")
+        new_row = [label, w["url"], today, last_changed, text]
+        if prev:
+            cell = _gspread_retry(ws.find, label, in_column=1)
+            _gspread_retry(ws.update, f"A{cell.row}:E{cell.row}", [new_row],
+                           value_input_option="USER_ENTERED")
+        else:
+            _gspread_retry(ws.append_row, new_row, value_input_option="USER_ENTERED")
+
+
+def send_page_watch_email(label, url, snapshot):
+    if not (SMTP_USER and SMTP_PASS and EMAIL_TO):
+        print("[email] SMTP not configured, skipping page-watch email.")
+        return
+    msg = EmailMessage()
+    msg["Subject"] = f"Page changed: {label}"
+    msg["From"] = SMTP_USER
+    msg["To"] = EMAIL_TO
+    msg.set_content(f"{label} changed:\n{url}\n\n{snapshot}")
+    msg.add_alternative(
+        f"<h3>{html.escape(label)} changed</h3>"
+        f"<p><a href='{html.escape(url)}'>{html.escape(url)}</a></p>"
+        f"<pre style='white-space:pre-wrap'>{html.escape(snapshot)}</pre>",
+        subtype="html",
+    )
+    ctx = ssl.create_default_context()
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+        s.starttls(context=ctx)
+        s.login(SMTP_USER, SMTP_PASS)
+        s.send_message(msg)
+    print(f"[email] Sent page-watch alert for '{label}' to {EMAIL_TO}.")
 
 
 # ===========================================================================
@@ -1074,8 +1330,11 @@ def send_email(rows):
     if not (SMTP_USER and SMTP_PASS and EMAIL_TO):
         print("[email] SMTP not configured, skipping email.")
         return
-    # Priority roles first in the digest.
-    ordered = sorted(rows, key=lambda r: r[PRIORITY_IDX] != "Yes")
+    # Priority location first, then core product titles (product manager/
+    # analyst/owner/ops) ahead of the rest (technical program manager,
+    # associate project/program manager).
+    ordered = sorted(rows, key=lambda r: (r[PRIORITY_IDX] != "Yes",
+                                          not is_core_title(r[TITLE_IDX])))
     n_prio = sum(1 for r in rows if r[PRIORITY_IDX] == "Yes")
     lines = [f"{len(rows)} new role(s) ({n_prio} in your preferred locations):\n"]
     html_items = []
@@ -1117,7 +1376,7 @@ def main(dry_run=False):
         print("[dry-run] Worksheet does not exist yet; treating it as empty.")
         existing_urls = set()
     else:
-        existing_urls = set(ws.col_values(URL_COL))  # column G = URL
+        existing_urls = set(_gspread_retry(ws.col_values, URL_COL))  # column G = URL
     today = datetime.date.today().isoformat()
     new_rows = []
 
@@ -1144,6 +1403,12 @@ def main(dry_run=False):
             # the fetch below to the handful of roles that could still qualify.
             if not passes_title(j) or is_non_us(j.get("location")):
                 continue
+            # Also free: drop it if the source's own date already says it's
+            # old, before spending a request on its description. See
+            # MAX_POSTING_AGE_DAYS for exactly which sources this applies to.
+            posted = _norm_date(j.get("posted"))
+            if is_stale(posted):
+                continue
             # A listing with no description can't be judged on experience, so
             # go get one. Without this, description-less sources bypass the
             # experience filter entirely (see _fetch_description).
@@ -1156,15 +1421,17 @@ def main(dry_run=False):
             # sources don't set this and fall back to the source name, which is
             # the company anyway.
             company = (j.get("company") or "").strip() or c["name"]
-            new_rows.append([today, _norm_date(j.get("posted")), prio, company,
+            new_rows.append([today, posted, prio, company,
                              j["title"], j["location"], url, ""])
             existing_urls.add(url)
             kept += 1
         print(f"{c['name']}: {kept} new match(es)")
 
     if new_rows:
-        # Append priority roles first so they sit higher in the sheet.
-        new_rows.sort(key=lambda r: r[PRIORITY_IDX] != "Yes")
+        # Priority location first, then core product titles ahead of the
+        # rest, so they sit higher in the sheet -- see is_core_title().
+        new_rows.sort(key=lambda r: (r[PRIORITY_IDX] != "Yes",
+                                     not is_core_title(r[TITLE_IDX])))
         if dry_run:
             print("\n--- would add ---")
             for _added, posted, prio, company, title, location, url, _a in new_rows:
@@ -1172,7 +1439,7 @@ def main(dry_run=False):
                 when = f", posted {posted}" if posted else ""
                 print(f"{star}{company}: {title} ({location}{when})\n    {url}")
         else:
-            ws.append_rows(new_rows, value_input_option="USER_ENTERED")
+            _gspread_retry(ws.append_rows, new_rows, value_input_option="USER_ENTERED")
             try:
                 send_email(new_rows)
             except Exception as e:
@@ -1191,6 +1458,11 @@ def main(dry_run=False):
             print(f"    - {name}: {err}")
     if dry_run:
         print("\nDry run: nothing was written to the sheet and no email was sent.")
+
+    try:
+        check_page_watches(dry_run=dry_run)
+    except Exception as e:
+        print(f"[warn] page watch check failed: {e}")
 
 
 def send_test_email():

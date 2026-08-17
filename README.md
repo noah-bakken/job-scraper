@@ -7,7 +7,15 @@ appends new hits to a Google Sheet, and emails you a digest.
 ## What it keeps and drops
 
 - KEEP: PM, associate PM, APM, junior PM, product analyst, product owner,
-  technical program manager, product ops. Entry level. Startups and big cos.
+  technical program manager, product ops, associate project manager,
+  associate program manager. Entry level. Startups and big cos.
+- Product manager, product analyst, product owner, and product ops titles are
+  **highest priority** and sort to the top within each location tier.
+  Technical program manager, associate project manager, and associate program
+  manager are still kept, just ranked below those — see `TITLE_INCLUDE_CORE`
+  and `is_core_title()`. Deliberately excludes bare "project manager" /
+  "program manager" (no "associate"): those pull in roles that aren't entry
+  level without ever saying "senior" in the title.
 - KEEP: internships/co-ops open to graduates.
 - KEEP: roles with blank/remote/unspecified locations (so nothing is lost).
 - DROP: senior / staff / principal / lead / director and level II+.
@@ -29,6 +37,10 @@ appends new hits to a Google Sheet, and emails you a digest.
   The filter drops on a positive non-US signal rather than requiring a positive
   US one, because `US_TERMS` doesn't recognize "SF" and `US_STATE_CODES` omits
   ID/LA/IN/OR — requiring a US match would delete real US roles.
+- DROP: roles older than `MAX_POSTING_AGE_DAYS` (default **45**), when the
+  source gives a real posted date. Sources with no reliable date (Workday,
+  New-Grad Feed, Google, Microsoft) are untouched by this and keep
+  contributing at full breadth.
 - Preferred US locations are flagged and floated to the top of the sheet.
 
 Every rule is a plain list at the top of `scrape_jobs.py`
@@ -94,6 +106,28 @@ and "our 2026 roadmap" are ignored. **A posting that names no window is kept** �
 silence isn't a disqualification, which is what lets grad-friendly internships
 through while "graduating in Fall 2027" gets dropped.
 
+### Freshness (`MAX_POSTING_AGE_DAYS`, default 45)
+`is_stale()` drops a role if the source's own posted date is older than
+`MAX_POSTING_AGE_DAYS`. Set to `None` to disable.
+
+This only ever looks at a date the *source* supplied, so it's scoped by
+exactly what's already true in the [Sources](#sources) table above: Workday,
+the New-Grad Feed, Google, and Microsoft never give a usable date (`_norm_date`
+normalizes anything missing or unparseable to `""`), so this filter never
+touches them and they keep contributing every currently-open match at full
+breadth, same as before. Only Greenhouse (`first_published`), Ashby
+(`publishedAt`), and Amazon (`posted_date`) are ever judged against the
+ceiling.
+
+**The trade-off to know about**, straight from Known limits: even a "real"
+date from those three is a first-posted date, not "currently open since." A
+company that recycles one requisition every hiring cycle never updates it, so
+the Databricks "Summer 2027 internship posted 2023-08-17" example further down
+this README can genuinely get dropped here even though the role is still
+open. That's accepted on purpose — a handful of false drops on recycled
+listings, in exchange for the sheet not filling up with months-old reposts. If
+the sheet starts looking thin, raise the number or set it to `None`.
+
 ### How the Europe exclusion avoids false positives
 `is_europe_only()` checks for a **US signal first** and only then tests for
 Europe. That ordering is the whole trick: `Vienna, VA`, `Dublin, CA`,
@@ -112,6 +146,48 @@ column and are floated to the top of each run and each email digest. Short codes
 (sf, nyc, ny, ca, dc) match as whole words so "ca" hits ", CA" but not "Canada".
 Sort or filter the Priority column in the sheet to focus on your cities, or read
 the top of each email where priority roles are listed first.
+
+Sort order is two-level: preferred location first, then core product titles
+(product manager/analyst/owner/ops) ahead of everything else TITLE_INCLUDE
+matches (technical program manager, associate project/program manager) — see
+`is_core_title()` above. The **Priority** column itself still reflects
+location only, unchanged; the title tier affects ordering, not that column.
+
+## Page watch
+
+Separate from the job scrape: `PAGE_WATCHES` in `scrape_jobs.py` watches plain
+web pages for a text change and emails you the instant one lands, on the same
+20-minute run as everything else. Currently watching
+[Synchrony's Full-Time BLP program page](https://www.synchronyuniversity.com/programs/)
+for the "Applications are currently closed" status to change, or the program
+details to be updated.
+
+Each entry is fetched, stripped to plain text, and sliced to the window
+between `start` and `end` (first match of each, case-sensitive on purpose --
+see the comment in `fetch_watch_text`). That scoping matters: the Synchrony
+page also has an Externship and a Summer Internship card, and without it an
+edit to either would fire a false alert for the Full-Time BLP watch. Omit
+`end` to watch to the end of the page; omit both to watch the page in full.
+
+State lives in a second worksheet, **Page Watch**, in the same Google Sheet
+(created automatically). The first run for a given entry just records a
+baseline snapshot -- nothing has changed yet, so nothing is emailed. Every
+run after that compares the new snapshot to the stored one and, on any
+difference, emails the new text and updates the stored snapshot.
+
+Add a page by appending to `PAGE_WATCHES`:
+```python
+PAGE_WATCHES = [
+    {
+        "label": "Synchrony Full-Time BLP",
+        "url": "https://www.synchronyuniversity.com/programs/",
+        "start": "FULL-TIME BLP",
+        "end": "Summer Internship",
+    },
+]
+```
+Pick `start`/`end` text straight off the live page (view source or the
+rendered text) so the exact casing matches.
 
 ## Sources
 
@@ -228,6 +304,12 @@ python scrape_jobs.py
 ```
 
 ## Known limits
+- **Google Sheets 503s are retried, not fatal.** Every run failure seen so far
+  (runs #93, #145, #208) died on the same transient `503: The service is
+  currently unavailable` from Google's side, on whatever Sheets API call ran
+  first. `_gspread_retry()` wraps every Sheets call with 3 attempts and
+  backoff (2s/5s/10s), so a single transient blip no longer costs a whole run.
+  A run can still fail if Sheets is down for longer than that.
 - First run will populate a batch of currently-open matches; after that, only
   genuinely new postings are added (deduped on URL).
 - **Date posted** quality varies by source, and is blank when a source gives

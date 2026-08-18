@@ -191,11 +191,12 @@ rendered text) so the exact casing matches.
 
 ## Sources
 
-100 sources, ~17,700 listings a run, about 5 minutes.
+101 sources, ~18,700 listings a run.
 
 | Source | What it is | Reliability | Config |
 |--------|-----------|-------------|--------|
-| **New-Grad Feed** | Maintained list across hundreds of companies (startups + big cos) with apply links. The wide net. | Solid | none |
+| **New-Grad Feed (Simplify)** | [SimplifyJobs/New-Grad-Positions](https://github.com/SimplifyJobs/New-Grad-Positions) — maintained list across hundreds of companies (startups + big cos) with apply links. The wide net. | Solid | none |
+| **New-Grad Feed (vanshb03)** | [vanshb03/New-Grad-2026](https://github.com/vanshb03/New-Grad-2026) — a second, independently-maintained list, same schema. Confirmed live to barely overlap with Simplify's (~2% shared URLs among active listings), so this is close to double the unique companies, not a duplicate of the same list. | Solid | none |
 | Greenhouse / Lever / Ashby | 84 named companies, followed closely | Solid | `slug` |
 | Workday | 12 big employers not on the above: Salesforce, Adobe, Nvidia, PayPal, eBay, Mastercard, Autodesk, Workday, T-Mobile, Zillow, Comcast, Target | Good | `tenant`, `wd_host`, `site` |
 | Amazon / Google | Their own search endpoints | Best-effort | none |
@@ -208,10 +209,30 @@ Vercel, Linear, Datadog, Cloudflare, Snowflake, MongoDB, GitLab, Palantir…),
 consumer (Airbnb, Instacart, Lyft, Pinterest, Discord, Spotify, Roblox…), and
 health (Oscar, Ro, Hims & Hers, Benchling…).
 
-The New-Grad Feed does the broad "search everything" work. The per-company
-sources add depth for places you specifically care about. Amazon/Google
-endpoints are undocumented and may need occasional patching. Each source is
-isolated: if one fails, the run logs a warning and continues.
+The two New-Grad Feeds do the broad "search everything" work — between them,
+any company posting a new-grad role through either maintained list gets
+picked up, not just the 84 named above (this is how, for example, Fortuna
+Health's "Product Operations Associate" showed up despite Fortuna never being
+individually configured — it came through Simplify's feed). The per-company
+sources add depth for places you specifically care about, with richer data
+(real descriptions, exact posted dates) than either feed carries. Amazon/
+Google endpoints are undocumented and may need occasional patching. Each
+source is isolated: if one fails, the run logs a warning and continues.
+
+**Both feeds share one adapter, `fetch_newgrad_feed()`** — same schema
+(`company_name`, `title`, `locations`, `url`, `date_posted`, `active`,
+`is_visible`), only the URL differs (`feed_url` on the `COMPANIES` entry). To
+add a third feed built the same way, add another `{"name": ..., "ats":
+"newgrad_feed", "feed_url": ...}` entry.
+
+**Considered and rejected:** RemoteOK's public API works but is low-signal
+for this use case — of 100 live entries checked, only 1 was an actual product
+management posting (from a staffing agency), the rest mostly gig/service
+roles (cabin cleaning, "Test Job," obvious spam). Wellfound/Work at a Startup
+has no easily reachable public API (406 on a plain request; needs real
+browser automation). Built In would need HTML scraping like the Google
+adapter does, not a JSON feed — untested, possible future addition. LinkedIn
+and Indeed remain excluded for the reasons below.
 
 **LinkedIn and Indeed are deliberately absent.** Indeed answers `403` to
 automated requests and retired its public job API to partners only. LinkedIn's

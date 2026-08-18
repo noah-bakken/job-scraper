@@ -34,6 +34,25 @@ from google.oauth2.service_account import Credentials
 # CONFIG
 # ===========================================================================
 
+# Two independently-maintained new-grad job lists, referenced by COMPANIES
+# below and read by fetch_newgrad_feed(). Defined up here (rather than next to
+# the adapter, further down the file) because COMPANIES is evaluated at import
+# time and needs them to already exist.
+#
+# Both share the identical schema (company_name, title, locations, url,
+# date_posted, active, is_visible), so one adapter handles both -- only the
+# URL differs. Confirmed live to barely overlap: of vanshb03's active
+# listings, only ~2% share a URL with Simplify's, so running both is close to
+# double the unique companies, not a duplicate of the same list.
+NEWGRAD_FEED_URL = (
+    "https://raw.githubusercontent.com/SimplifyJobs/"
+    "New-Grad-Positions/dev/.github/scripts/listings.json"
+)
+NEWGRAD_FEED_URL_VANSHB03 = (
+    "https://raw.githubusercontent.com/vanshb03/"
+    "New-Grad-2026/main/.github/scripts/listings.json"
+)
+
 # Companies to watch. Verify ats + slug with find_source.py before trusting.
 #   greenhouse / lever / ashby -> needs "slug"
 #   workday                    -> needs "tenant", "wd_host", "site"
@@ -138,10 +157,16 @@ COMPANIES = [
     {"name": "Color Health",    "ats": "ashby",      "slug": "color-health"},
     {"name": "Komodo Health",   "ats": "greenhouse", "slug": "komodohealth"},
 
-    # --- Broad "search anything" feed: a maintained new-grad list spanning
-    #     hundreds of companies (startups + big cos), with apply links. This is
-    #     what casts the wide net; the per-company sources above add depth. ---
-    {"name": "New-Grad Feed", "ats": "newgrad_feed"},
+    # --- Broad "search anything" feeds: maintained new-grad lists spanning
+    #     hundreds of companies each (startups + big cos), with apply links.
+    #     This is what casts the wide net; the per-company sources above add
+    #     depth. Two independent feeds, not one -- confirmed live to overlap
+    #     on barely 2% of active listings, so running both is close to double
+    #     the unique companies, not a duplicate of the same list. ---
+    {"name": "New-Grad Feed (Simplify)", "ats": "newgrad_feed",
+     "feed_url": NEWGRAD_FEED_URL},
+    {"name": "New-Grad Feed (vanshb03)", "ats": "newgrad_feed",
+     "feed_url": NEWGRAD_FEED_URL_VANSHB03},
 
     # --- Marquee search endpoints (best-effort; verify on first run) ---
     {"name": "Amazon",    "ats": "amazon"},
@@ -828,17 +853,12 @@ def fetch_microsoft(c):
     return out
 
 
-NEWGRAD_FEED_URL = (
-    "https://raw.githubusercontent.com/SimplifyJobs/"
-    "New-Grad-Positions/dev/.github/scripts/listings.json"
-)
-
-
 def fetch_newgrad_feed(c):
     """A maintained new-grad job list across hundreds of companies. Carries no
     description, so title/location filters do the work here (fine, since the
-    whole feed is new-grad full-time by construction)."""
-    r = requests.get(NEWGRAD_FEED_URL, timeout=60, headers=REQ_HEADERS)
+    whole feed is new-grad full-time by construction). c["feed_url"] picks
+    which maintained list to read; see NEWGRAD_FEED_URL_VANSHB03 above."""
+    r = requests.get(c.get("feed_url", NEWGRAD_FEED_URL), timeout=60, headers=REQ_HEADERS)
     r.raise_for_status()
     out = []
     for j in r.json():

@@ -1176,6 +1176,32 @@ def get_worksheet(create=True):
     return ws
 
 
+def _next_data_row(ws):
+    """Row index (1-based) right after the last row with real data in the
+    tracked columns A-G.
+
+    Deliberately ignores column H (Applied?). That column is checkbox-
+    formatted in the sheet, and a checkbox's unchecked state is a real FALSE
+    value written to the cell, not a blank one. append_rows() (used
+    previously here) never passes a table_range, so it relies entirely on
+    the Sheets API's own "find the end of the table" heuristic, which counts
+    any row with so much as one non-empty cell as part of the table --
+    including a long stretch of otherwise-empty rows that carry nothing but
+    an unchecked checkbox. That silently pushed new rows out past your real
+    data, past what you'd ever scroll to see: postings kept matching and
+    emailing correctly (main() never touches this function's result before
+    the write, so the digest was never wrong) while the sheet itself
+    appeared stuck. Computing the target row explicitly from A-G sidesteps
+    the heuristic entirely.
+    """
+    values = _gspread_retry(ws.get_all_values)
+    last = 0
+    for i, row in enumerate(values, start=1):
+        if any((row[j] if j < len(row) else "") for j in range(7)):  # A-G
+            last = i
+    return last + 1
+
+
 # ===========================================================================
 # Page watch -- non-job pages you want to hear about the instant they change,
 # checked on the same run as the job scrape so "asap" means "within 20 min"
@@ -1439,7 +1465,8 @@ def main(dry_run=False):
                 when = f", posted {posted}" if posted else ""
                 print(f"{star}{company}: {title} ({location}{when})\n    {url}")
         else:
-            _gspread_retry(ws.append_rows, new_rows, value_input_option="USER_ENTERED")
+            row = _next_data_row(ws)
+            _gspread_retry(ws.update, new_rows, f"A{row}", value_input_option="USER_ENTERED")
             try:
                 send_email(new_rows)
             except Exception as e:

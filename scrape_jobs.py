@@ -949,6 +949,43 @@ def years_required(desc):
     return best
 
 
+# Some postings never state a number of years but still describe a clearly
+# senior bar in prose: "Bring substantial technical program management
+# leadership..., with a track record of owning complex programs end to end"
+# is a staff/lead-level requirement that years_required() can't see, because
+# it never says "5 years" -- it says "track record" instead. Observed on
+# several of OpenAI's TPM postings and a Chime lead PM role, confirmed live
+# against 266 title+location-matching postings across all sources: only
+# those 5 carry this pattern, and only these 5 -- nothing that plainly reads
+# as entry-level tripped it.
+#
+# Deliberately narrow: an intensity word (strong/substantial/extensive/
+# demonstrated/proven/exceptional/significant/deep) within ~150 chars of
+# "track record", itself within ~100 chars of a scale word (complex/
+# large-scale/high-impact/high-profile/end-to-end), all inside one sentence
+# (the [^.;!?] bound). This is NOT a ban on the phrase "track record" --
+# "you'll build a track record of success here" is exactly the kind of
+# forward-looking, entry-level-friendly phrasing this must not catch, and it
+# doesn't: there's no intensity word possessing it, and nothing feeds into
+# the scale-word half of the pattern.
+_SENIOR_TRACK_RECORD = re.compile(
+    r"\b(strong|substantial|extensive|demonstrated|proven|exceptional|significant|deep)\b"
+    r"[^.;!?]{0,150}\btrack record\b[^.;!?]{0,100}"
+    r"\b(complex|large-scale|high-impact|high-profile|end.to.end|end to end)\b",
+    re.I,
+)
+
+
+def has_senior_track_record_signal(desc):
+    """True if the description carries the qualitative-seniority pattern
+    _SENIOR_TRACK_RECORD matches -- a senior/staff-level bar stated in prose
+    instead of (or alongside) a number years_required() could catch. See the
+    comment above the regex for exactly what this does and doesn't match."""
+    if not desc:
+        return False
+    return bool(_SENIOR_TRACK_RECORD.search(desc))
+
+
 def earliest_graduation_window(desc):
     """Earliest graduation date a posting targets, as (year, month).
 
@@ -1095,6 +1132,8 @@ def matches(job):
     if MAX_YEARS_EXPERIENCE is not None:
         years = years_required(desc)
         if years is not None and years > MAX_YEARS_EXPERIENCE:
+            return False
+        if has_senior_track_record_signal(desc):
             return False
     if GRADUATED is not None:
         grad = earliest_graduation_window(desc)

@@ -243,6 +243,13 @@ TITLE_INCLUDE_CORE = [
 TITLE_EXCLUDE_WORDS = [
     "senior", "sr.", "sr ", "staff", "principal", "lead", "director",
     "head of", "group product", "vp", "vice president", "manager iii",
+    # "Actuarial Opportunities - Pet Insurance Product Management" matches
+    # TITLE_INCLUDE on "product management", but it's an actuarial role filed
+    # under a Product Management department tag, not a product job. Checked
+    # against every actuarial/actuary title currently seen: this is the only
+    # one that would otherwise pass -- "Associate, Actuarial" and "Senior
+    # Actuarial Analyst" never matched TITLE_INCLUDE in the first place.
+    "actuarial",
 ]
 # Level tokens rejected only as whole words (so "ii" won't hit "hawaii").
 TITLE_EXCLUDE_TOKENS = {"ii", "iii", "iv"}
@@ -973,25 +980,43 @@ def years_required(desc):
 # senior bar in prose: "Bring substantial technical program management
 # leadership..., with a track record of owning complex programs end to end"
 # is a staff/lead-level requirement that years_required() can't see, because
-# it never says "5 years" -- it says "track record" instead. Observed on
-# several of OpenAI's TPM postings and a Chime lead PM role, confirmed live
-# against 266 title+location-matching postings across all sources: only
-# those 5 carry this pattern, and only these 5 -- nothing that plainly reads
-# as entry-level tripped it.
+# it never says "5 years" -- it says "track record" instead.
 #
-# Deliberately narrow: an intensity word (strong/substantial/extensive/
-# demonstrated/proven/exceptional/significant/deep) within ~150 chars of
-# "track record", itself within ~100 chars of a scale word (complex/
-# large-scale/high-impact/high-profile/end-to-end), all inside one sentence
-# (the [^.;!?] bound). This is NOT a ban on the phrase "track record" --
-# "you'll build a track record of success here" is exactly the kind of
-# forward-looking, entry-level-friendly phrasing this must not catch, and it
-# doesn't: there's no intensity word possessing it, and nothing feeds into
-# the scale-word half of the pattern.
+# An intensity word (strong/substantial/extensive/proven/exceptional/
+# significant/deep) within ~150 chars of "track record" is the whole signal.
+# This is NOT a ban on the phrase "track record" -- "you'll build a track
+# record of success here" is exactly the kind of forward-looking, entry-
+# level-friendly phrasing this must not catch, and across every posting
+# checked so far, it never does. An earlier version also required a scale
+# word (complex/large-scale/high-impact/etc.) right after "track record", on
+# the theory that intensity + track record alone might be too loose --
+# dropped after it missed real cases: Thumbtack's "a proven track record of
+# launching impactful... products" (no scale word in that list) and a Chime
+# lead PM's "significant experience... a proven track record of owning
+# complex product areas" both read as clearly senior without one.
+#
+# "demonstrated" was in the intensity list and got removed: Harper Group's
+# posting explicitly says "What we're looking for: 1-3 years in product, or
+# an early-career operator... who's been doing the work without the title"
+# -- genuinely entry-level-friendly -- and still tripped on "Demonstrated
+# end-to-end ownership of a product... and a track record of going deep on a
+# domain." "Demonstrated" can describe aptitude shown in a class project or
+# internship, not just years of professional practice, unlike the remaining
+# words here. Confirmed removing it doesn't lose any of the other real
+# catches -- none of them were triggered by "demonstrated".
+#
+# Known rough edge, checked and accepted: postings list requirements as
+# scraped-flat bullet points with no period between them, so this can match
+# across two adjacent-but-unrelated bullets (an intensity word in one, "track
+# record" in the next) rather than one coherent requirement. Confirmed live
+# against 268 title+location-matching postings across every source: this
+# happened twice (both Anthropic TPM postings), and both were independently,
+# obviously senior anyway -- so the final verdict was never wrong, even though
+# the match itself was coincidental. Revisit if a genuinely entry-level
+# posting ever gets caught this way.
 _SENIOR_TRACK_RECORD = re.compile(
-    r"\b(strong|substantial|extensive|demonstrated|proven|exceptional|significant|deep)\b"
-    r"[^.;!?]{0,150}\btrack record\b[^.;!?]{0,100}"
-    r"\b(complex|large-scale|high-impact|high-profile|end.to.end|end to end)\b",
+    r"\b(strong|substantial|extensive|proven|exceptional|significant|deep)\b"
+    r"[^.;!?]{0,150}\btrack record\b",
     re.I,
 )
 
@@ -1056,6 +1081,22 @@ def _fetch_description(url):
         return _strip_html(r.text)
     except Exception:
         return ""
+
+
+def is_closed_posting(desc):
+    """True if the page itself says the listing is no longer open.
+
+    Workday embeds the page's own state as JS, including a literal
+    "postingAvailable: true" or "postingAvailable: false", and _strip_html()
+    only removes HTML tags -- not the text between them -- so that value
+    survives into the fetched description as plain text. A requisition can
+    close while still showing up in a company's own Workday search results
+    for a while after (confirmed live: Ancestry's "Associate Technical
+    Product Manager - Data, AI & Analytics Platforms" is exactly this --
+    postingAvailable: false, still returned by search). Harmless no-op for
+    every other source: this exact string only ever appears in a Workday
+    page's own JS."""
+    return "postingAvailable: false" in (desc or "")
 
 
 # "apm" and "tpm" are the only TITLE_INCLUDE entries short enough to be someone
@@ -1499,6 +1540,8 @@ def main(dry_run=False):
             # experience filter entirely (see _fetch_description).
             if not (j.get("description") or "").strip():
                 j["description"] = _fetch_description(url)
+            if is_closed_posting(j["description"]):
+                continue
             if not matches(j):
                 continue
             prio = "Yes" if is_priority_location(j.get("location")) else ""

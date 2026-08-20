@@ -1066,21 +1066,41 @@ def _fetch_description(url):
     the sheet by hand reappear on the very next run, since the scraper cannot
     see the requirement the deletion was based on.
 
-    Returns "" on any failure, which preserves the old keep-on-silence
-    behaviour rather than dropping a role because its page happened to 404.
+    Retries a couple times on anything that looks transient (a network
+    error, a timeout, or a non-404 bad status) before giving up: confirmed
+    live that GitHub Actions' shared runner IPs occasionally get a fetch
+    failure here that a normal connection doesn't (three Comcast Workday
+    postings that plainly require 5-7 years fetched fine on every attempt
+    from a regular connection, yet got emailed as new "0 years" matches from
+    an Actions run -- the only way that happens is this function returning
+    ""  that run, years_required("") coming back None, and the years gate
+    reading "nothing stated" instead of "couldn't check"). Same fix shape as
+    _gspread_retry, for the same reason: a single blip shouldn't silently
+    turn off a filter.
+
+    Still returns "" after retries are exhausted (or immediately on a 404,
+    which retrying can't fix), preserving the old keep-on-silence behaviour
+    rather than dropping a role because its page is genuinely gone.
     """
-    try:
-        r = requests.get(url, timeout=20, headers=REQ_HEADERS)
-        if not r.ok:
-            return ""
-        # Sniff the encoding instead of taking the default. requests falls back
-        # to Latin-1 when a page declares no charset, which turns "0-2 years"
-        # into mojibake the range pattern can't read -- and a posting that
-        # advertises itself as entry level then scores as a 2-year requirement.
-        r.encoding = r.apparent_encoding or "utf-8"
-        return _strip_html(r.text)
-    except Exception:
-        return ""
+    delays = (1, 2)
+    for i, delay in enumerate((*delays, None)):
+        try:
+            r = requests.get(url, timeout=20, headers=REQ_HEADERS)
+            if r.ok:
+                # Sniff the encoding instead of taking the default. requests
+                # falls back to Latin-1 when a page declares no charset, which
+                # turns "0-2 years" into mojibake the range pattern can't read
+                # -- and a posting that advertises itself as entry level then
+                # scores as a 2-year requirement.
+                r.encoding = r.apparent_encoding or "utf-8"
+                return _strip_html(r.text)
+            if r.status_code == 404 or delay is None:
+                return ""
+        except Exception:
+            if delay is None:
+                return ""
+        time.sleep(delay)
+    return ""
 
 
 def is_closed_posting(desc):

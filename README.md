@@ -16,16 +16,33 @@ appends new hits to a Google Sheet, and emails you a digest.
   and `is_core_title()`. Deliberately excludes bare "project manager" /
   "program manager" (no "associate"): those pull in roles that aren't entry
   level without ever saying "senior" in the title.
-- KEEP: customer success, any company, no restriction — a second category
-  alongside product roles, same filters apply (entry level, US, no more than
-  `MAX_YEARS_EXPERIENCE`).
-- KEEP: customer support, but **only at a robotics or IoT company** — generic
-  customer support (retail, telecom, general SaaS) is out of scope. Checked
-  against the title, description, and company name together for a robotics/
-  IoT signal; see `ROBOTICS_IOT_TERMS` and `is_robotics_or_iot()`. Six
-  robotics/IoT companies (Skydio, Figure AI, Agility Robotics, Nuro, Samsara,
-  Verkada) are named explicitly in `COMPANIES` so this has real sources to
-  check, not just whatever the New-Grad Feeds happen to carry.
+- KEEP: customer success associate/specialist/coordinator/representative, any
+  company, no restriction — a second category alongside product roles, same
+  filters apply (entry level, US, no more than `MAX_YEARS_EXPERIENCE`).
+  Deliberately NOT bare "Customer Success Manager": checked live and every
+  bare-CSM posting found (GitLab, Harvey, Airwallex) was a real experienced-
+  hire role -- own a book of accounts, lead a team, deep technical/DevSecOps
+  depth -- with no number, "track record", or "experienced professional"
+  phrase to catch it. Unlike "Product Manager" (where "Associate Product
+  Manager" is the established junior program name), "Customer Success/
+  Support Manager" is industry convention for an experienced-hire title, not
+  an entry-level one. Same "require the junior-signaling word" fix as
+  "associate project manager" above.
+- KEEP: customer support associate/specialist/coordinator/representative, but
+  **only at a robotics or IoT company** — generic customer support (retail,
+  telecom, general SaaS) is out of scope. Checked against the title,
+  description, and company name together for a robotics/IoT signal; see
+  `ROBOTICS_IOT_TERMS` and `is_robotics_or_iot()`. Six robotics/IoT companies
+  (Skydio, Figure AI, Agility Robotics, Nuro, Samsara, Verkada) are named
+  explicitly in `COMPANIES` so this has real sources to check, not just
+  whatever the New-Grad Feeds happen to carry.
+- **Heads up on volume**: checked live across all sources after tightening
+  the titles above -- every currently-open customer success/support posting
+  that matches the entry-level titles asks for at least 1 year of experience
+  (range 1-7). At `MAX_YEARS_EXPERIENCE = 0` that's zero matches right now.
+  This category will likely run thinner than product roles for that reason;
+  raise `MAX_YEARS_EXPERIENCE` (globally, or split into a separate ceiling
+  for this category) if the trickle is too slow.
 - KEEP: internships/co-ops open to graduates.
 - KEEP: roles with blank/remote/unspecified locations (so nothing is lost).
 - DROP: senior / staff / principal / lead / director and level II+.

@@ -222,14 +222,22 @@ TITLE_INCLUDE = [
     "product owner",
     "associate project manager",
     "associate program manager",
-    "customer success",
-    # "customer support" is also here, but scoped down separately in
-    # matches() to only robotics/IoT companies -- see
-    # ROBOTICS_IOT_TERMS and is_robotics_or_iot() below. Generic customer
-    # support (retail, telecom, general SaaS) is out of scope; this title
-    # still needs to pass TITLE_INCLUDE to get the free title/location gate
-    # and a description fetch before that check can run.
-    "customer support",
+    "customer success associate",
+    "customer success specialist",
+    "customer success coordinator",
+    "customer success representative",
+    "associate customer success manager",
+    "junior customer success manager",
+    # "customer support" titles are also scoped down separately in matches()
+    # to only robotics/IoT companies -- see ROBOTICS_IOT_TERMS and
+    # is_robotics_or_iot() below. Generic customer support (retail, telecom,
+    # general SaaS) is out of scope; these titles still need to pass
+    # TITLE_INCLUDE to get the free title/location gate and a description
+    # fetch before that check can run.
+    "customer support associate",
+    "customer support specialist",
+    "customer support coordinator",
+    "customer support representative",
 ]
 # Note on "Associate Product ___": we don't list "associate product" on its own,
 # because it also catches "Associate Product Engineer/Designer". "Associate
@@ -243,10 +251,21 @@ TITLE_INCLUDE = [
 # actually want, matching "technical program manager"/"tpm" already above.
 #
 # Note on "customer success"/"customer support": a second, separate category
-# from product roles, opened up on request. "Customer success" carries no
-# restriction -- entry-level customer success is wanted anywhere. "Customer
-# support" is deliberately narrower: wanted only at a robotics or IoT
-# company, not customer support generally.
+# from product roles, opened up on request. Deliberately NOT bare "customer
+# success manager" / "customer support manager": checked live and bare
+# "Customer Success Manager" postings at GitLab, Harvey, and Airwallex were
+# all real experienced-hire roles (own a book of accounts, lead a team,
+# require specific technical or industry depth) with no number, "track
+# record", or "experienced professional" phrase to catch them -- "Customer
+# Success/Support Manager" is industry convention for an experienced-hire
+# title, not an entry-level one, unlike "Product Manager" where "Associate
+# Product Manager" is the well-established junior program name. The actual
+# entry-level titles in this field are associate/specialist/coordinator/
+# representative, so those are what's listed, matching the same "require the
+# junior-signaling word" approach as "associate project manager" above.
+# "Customer Success ___" carries no company restriction -- entry-level
+# customer success is wanted anywhere. "Customer Support ___" is narrower:
+# wanted only at a robotics or IoT company, not customer support generally.
 
 # Titles matching one of these read as the core ask -- straight-up entry-level
 # product management, analyst, owner, or ops work -- and are ranked above

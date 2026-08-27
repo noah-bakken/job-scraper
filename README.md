@@ -16,6 +16,16 @@ appends new hits to a Google Sheet, and emails you a digest.
   and `is_core_title()`. Deliberately excludes bare "project manager" /
   "program manager" (no "associate"): those pull in roles that aren't entry
   level without ever saying "senior" in the title.
+- KEEP: customer success, any company, no restriction — a second category
+  alongside product roles, same filters apply (entry level, US, no more than
+  `MAX_YEARS_EXPERIENCE`).
+- KEEP: customer support, but **only at a robotics or IoT company** — generic
+  customer support (retail, telecom, general SaaS) is out of scope. Checked
+  against the title, description, and company name together for a robotics/
+  IoT signal; see `ROBOTICS_IOT_TERMS` and `is_robotics_or_iot()`. Six
+  robotics/IoT companies (Skydio, Figure AI, Agility Robotics, Nuro, Samsara,
+  Verkada) are named explicitly in `COMPANIES` so this has real sources to
+  check, not just whatever the New-Grad Feeds happen to carry.
 - KEEP: internships/co-ops open to graduates.
 - KEEP: roles with blank/remote/unspecified locations (so nothing is lost).
 - DROP: senior / staff / principal / lead / director and level II+.
@@ -92,7 +102,34 @@ kept regardless of what it actually required. That made hand-deleting such
 roles from the sheet pointless — they came back on the very next run. `main()`
 now calls `_fetch_description()` for any listing that arrives without one, but
 only after the free title and location gates, so it costs a handful of requests
-per run rather than thousands.
+per run rather than thousands. Retries twice with backoff before giving up, so
+a single transient network blip can't silently disable this filter for one
+posting on one run — confirmed live this actually happened (see git history).
+
+### Disguised seniority (no number stated, but clearly not entry level)
+Some postings never state a number of years but still describe a senior bar
+in prose, which `years_required()` can't see. Three distinct shapes found so
+far, each its own function:
+
+- `has_senior_track_record_signal()` — an intensity word (strong/substantial/
+  extensive/proven/exceptional/significant/deep) near "track record": "a
+  proven track record of launching impactful products."
+- `has_experienced_professional_signal()` — the literal phrase "experienced
+  professional(s)": "Experienced professionals with a background in
+  Enterprise SaaS... or top tier management consulting firms."
+
+Both are narrow on purpose and both stay narrow even after being loosened
+once — see the comments directly above each regex in `scrape_jobs.py` for
+the specific false positive each one already caused and how it was fixed
+(a genuinely entry-level Harper Group posting, in the track-record case).
+This is not an exhaustive category. New disguise shapes turn up every time a
+new title category or company gets added — a fourth appeared on Harvey's
+"Majors" tier ("Background in asset management... or strategic customer
+success... experience") that wasn't chased further, since generalizing on
+"background in" risks catching genuinely entry-level postings that just
+happen to mention a required academic background. If a role is obviously
+senior and slips through, it's likely a fourth shape — send the exact
+phrase and it becomes a permanent fix the same way these two did.
 
 ### Graduation windows
 `earliest_graduation_window()` pulls the graduation date a posting targets and

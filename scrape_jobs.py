@@ -157,6 +157,20 @@ COMPANIES = [
     {"name": "Color Health",    "ats": "ashby",      "slug": "color-health"},
     {"name": "Komodo Health",   "ats": "greenhouse", "slug": "komodohealth"},
 
+    # --- Robotics / IoT: added for the customer-support scoping (see
+    #     ROBOTICS_IOT_TERMS), but also surfaces any product-track role at
+    #     these companies same as everywhere else. Every slug below was
+    #     probed live and confirmed to be the real company, not a stub or
+    #     wrong board -- "figure" on greenhouse is Figure Lending, not this
+    #     Figure (the humanoid-robotics one), same trap as the Disney/
+    #     Capital One examples above; the real one is "figureai". ---
+    {"name": "Skydio",           "ats": "ashby",      "slug": "skydio"},
+    {"name": "Figure AI",        "ats": "greenhouse", "slug": "figureai"},
+    {"name": "Agility Robotics", "ats": "greenhouse", "slug": "agilityrobotics"},
+    {"name": "Nuro",             "ats": "greenhouse", "slug": "nuro"},
+    {"name": "Samsara",          "ats": "greenhouse", "slug": "samsara"},
+    {"name": "Verkada",          "ats": "greenhouse", "slug": "verkada"},
+
     # --- Broad "search anything" feeds: maintained new-grad lists spanning
     #     hundreds of companies each (startups + big cos), with apply links.
     #     This is what casts the wide net; the per-company sources above add
@@ -208,6 +222,14 @@ TITLE_INCLUDE = [
     "product owner",
     "associate project manager",
     "associate program manager",
+    "customer success",
+    # "customer support" is also here, but scoped down separately in
+    # matches() to only robotics/IoT companies -- see
+    # ROBOTICS_IOT_TERMS and is_robotics_or_iot() below. Generic customer
+    # support (retail, telecom, general SaaS) is out of scope; this title
+    # still needs to pass TITLE_INCLUDE to get the free title/location gate
+    # and a description fetch before that check can run.
+    "customer support",
 ]
 # Note on "Associate Product ___": we don't list "associate product" on its own,
 # because it also catches "Associate Product Engineer/Designer". "Associate
@@ -219,6 +241,12 @@ TITLE_INCLUDE = [
 # "senior" anywhere in the title for TITLE_EXCLUDE_WORDS to catch. Requiring
 # "associate" keeps this to the entry-level rotational-style roles you
 # actually want, matching "technical program manager"/"tpm" already above.
+#
+# Note on "customer success"/"customer support": a second, separate category
+# from product roles, opened up on request. "Customer success" carries no
+# restriction -- entry-level customer success is wanted anywhere. "Customer
+# support" is deliberately narrower: wanted only at a robotics or IoT
+# company, not customer support generally.
 
 # Titles matching one of these read as the core ask -- straight-up entry-level
 # product management, analyst, owner, or ops work -- and are ranked above
@@ -1031,6 +1059,26 @@ def has_senior_track_record_signal(desc):
     return bool(_SENIOR_TRACK_RECORD.search(desc))
 
 
+# Turned up opening the Customer Success category: Harvey's "WHAT YOU HAVE -
+# Experienced professionals with a background in Enterprise SaaS, legal (big
+# law) or top tier management consulting firms" is a clear senior bar, but
+# has neither a number (years_required) nor "track record"
+# (has_senior_track_record_signal) -- a third disguise shape distinct from
+# both. Confirmed live across 500 title+location-matching postings: exactly
+# 6 contain this phrase, all 6 genuinely senior (the 2 not already caught by
+# something else are both Harvey CSM postings), zero false positives.
+_EXPERIENCED_PROFESSIONAL = re.compile(r"\bexperienced professionals?\b", re.I)
+
+
+def has_experienced_professional_signal(desc):
+    """True if the description opens a requirement with "experienced
+    professional(s)" -- see _EXPERIENCED_PROFESSIONAL above for the evidence
+    behind this exact phrase."""
+    if not desc:
+        return False
+    return bool(_EXPERIENCED_PROFESSIONAL.search(desc))
+
+
 def earliest_graduation_window(desc):
     """Earliest graduation date a posting targets, as (year, month).
 
@@ -1197,6 +1245,24 @@ def is_priority_location(loc):
     return False
 
 
+# "Customer support" only counts at a robotics or IoT company -- checked
+# against the title, description, and company name together, since a
+# generic "Customer Support Specialist" posting rarely spells out the
+# product category in the title alone. Keyword-based like everything else
+# here, so a robotics/IoT company whose posting happens not to use any of
+# these words (or use different ones) won't be recognized -- a real, known
+# limit, not chased further without a concrete missed example to work from.
+ROBOTICS_IOT_TERMS = [
+    "robot", "robotics", "iot", "internet of things", "smart home",
+    "connected device", "embedded system", "autonomous vehicle", "drone",
+]
+
+
+def is_robotics_or_iot(title, desc, company):
+    text = f"{title} {desc or ''} {company or ''}".lower()
+    return any(term in text for term in ROBOTICS_IOT_TERMS)
+
+
 def matches(job):
     # US-only: anything naming a country outside the US is dropped. A listing
     # that names no country at all is kept (see is_non_us), and location
@@ -1208,6 +1274,9 @@ def matches(job):
         return False
     if not passes_title(job):
         return False
+    if "customer support" in title and "customer success" not in title:
+        if not is_robotics_or_iot(title, desc, job.get("company")):
+            return False
     if any(p in desc for p in DESCRIPTION_EXCLUDE):
         return False
     if MAX_YEARS_EXPERIENCE is not None:
@@ -1215,6 +1284,8 @@ def matches(job):
         if years is not None and years > MAX_YEARS_EXPERIENCE:
             return False
         if has_senior_track_record_signal(desc):
+            return False
+        if has_experienced_professional_signal(desc):
             return False
     if GRADUATED is not None:
         grad = earliest_graduation_window(desc)

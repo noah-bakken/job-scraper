@@ -188,7 +188,7 @@ COMPANIES = [
     {"name": "Workday",    "ats": "workday", "tenant": "workday",    "wd_host": "wd5",  "site": "Workday"},
     {"name": "T-Mobile",   "ats": "workday", "tenant": "tmobile",    "wd_host": "wd1",  "site": "External"},
     {"name": "Zillow",     "ats": "workday", "tenant": "zillow",     "wd_host": "wd5",  "site": "Zillow_Group_External"},
-    {"name": "Comcast",    "ats": "workday", "tenant": "comcast",    "wd_host": "wd5",  "site": "Comcast_Careers"},
+    {"name": "Comcast",    "ats": "workday", "tenant": "comcast",    "wd_host": "wd115", "site": "Comcast_Careers"},
     {"name": "Target",     "ats": "workday", "tenant": "target",     "wd_host": "wd5",  "site": "targetcareers"},
 ]
 

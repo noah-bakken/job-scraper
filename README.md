@@ -1,6 +1,6 @@
 # Product-role tracker
 
-Polls job sources every 20 minutes, keeps post-undergrad entry-level product
+Polls job sources every hour, keeps post-undergrad entry-level product
 roles in your target cities, drops student-only and clearly-senior roles,
 appends new hits to a Google Sheet, and emails you a digest.
 
@@ -294,7 +294,7 @@ Real `jobPostings` in the response means the combination is right.
    | `SMTP_PASS` | the app password |
    | `EMAIL_TO` | where digests go |
 
-5. Runs every 20 minutes automatically. Test now via Actions → Scrape jobs →
+5. Runs every hour automatically. Test now via Actions → Scrape jobs →
    Run workflow. Email only sends when there's something new.
 
 ### Verifying the email actually works
@@ -312,8 +312,18 @@ which, at `MAX_YEARS_EXPERIENCE = 0`, is a slow trickle. Check the Actions log:
 
 ## Cost and cadence
 Free. Make the repo **public** for unlimited Actions minutes (secrets stay
-private either way). 20 minutes keeps worst-case detection well under an hour,
-which hourly can't guarantee once you account for scheduler delays.
+private either way). Runs hourly, offset a few minutes past the hour (see the
+comment in `scrape.yml`) rather than at a round number, to avoid the
+congestion spike every other repo's :00/:15/:30 schedule creates.
+
+This used to be every 20 minutes, on the theory that even with scheduler
+delays, worst-case detection would stay under an hour. **It backfired**:
+GitHub explicitly documents that `schedule`-triggered workflows more frequent
+than hourly get silently throttled under platform load, and confirmed live
+over 4 days, this ran at only 25-40% of its configured rate — real gaps up to
+11 hours, worse than an honest hourly schedule would ever produce. Hourly is
+in the range GitHub reliably honors, so this is the more accurate cadence,
+not a downgrade.
 
 ## Run locally
 ```bash

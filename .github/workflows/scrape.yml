@@ -2,9 +2,18 @@ name: Scrape jobs
 
 on:
   schedule:
-    # Every 20 minutes. Keeps detection lag under an hour even if the platform
-    # delays a run. Times are UTC.
-    - cron: "*/20 * * * *"
+    # Hourly, offset from the top of the hour (not :00) to dodge the
+    # congestion spike every other repo's :00/:15/:30 schedules create --
+    # GitHub explicitly documents that schedule-triggered workflows can be
+    # delayed under load, and busiest right at round numbers.
+    #
+    # This used to be */20 (every 20 minutes), on the theory that even with
+    # scheduler delays, detection lag would stay under an hour. In practice
+    # it did the opposite: GitHub silently throttles schedule triggers more
+    # frequent than hourly, and confirmed live over 4 days, this ran at only
+    # 25-40% of its configured rate, with real gaps up to 11 hours -- worse
+    # than an honest hourly schedule would ever be. Times are UTC.
+    - cron: "7 * * * *"
   workflow_dispatch:      # manual "Run workflow" button for testing
     inputs:
       test_email:

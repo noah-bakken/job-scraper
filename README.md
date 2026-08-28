@@ -33,16 +33,28 @@ appends new hits to a Google Sheet, and emails you a digest.
   telecom, general SaaS) is out of scope. Checked against the title,
   description, and company name together for a robotics/IoT signal; see
   `ROBOTICS_IOT_TERMS` and `is_robotics_or_iot()`. Six robotics/IoT companies
-  (Skydio, Figure AI, Agility Robotics, Nuro, Samsara, Verkada) are named
+  (Skydio, Figure AI, Agility Robotics, Nuro, Samsara, Verkada, Simbe
+  Robotics) are named
   explicitly in `COMPANIES` so this has real sources to check, not just
   whatever the New-Grad Feeds happen to carry.
-- **Heads up on volume**: checked live across all sources after tightening
-  the titles above -- every currently-open customer success/support posting
-  that matches the entry-level titles asks for at least 1 year of experience
-  (range 1-7). At `MAX_YEARS_EXPERIENCE = 0` that's zero matches right now.
-  This category will likely run thinner than product roles for that reason;
-  raise `MAX_YEARS_EXPERIENCE` (globally, or split into a separate ceiling
-  for this category) if the trickle is too slow.
+- Customer success/support gets its own experience ceiling,
+  `MAX_YEARS_EXPERIENCE_SUPPORT` (default **2**), separate from product
+  roles' `MAX_YEARS_EXPERIENCE` (default 0) -- see `_years_ceiling_for()`.
+  Checked live: every currently-open posting matching the entry-level titles
+  asked for at least 1 year, so at the same 0 ceiling as product roles this
+  category had zero matches. Raised on request; product roles are untouched.
+- Also KEEP: "technical support" titles (analyst/associate/specialist/
+  representative/coordinator), same robotics/IoT-only scoping as "customer
+  support" -- added after Simbe Robotics' "Technical Support Analyst" turned
+  up as a real posting with no "customer support" substring in the title at
+  all.
+- Within customer success/support, roles are additionally ranked by
+  `technical_relevance_score()` -- Python/SQL/bash, telemetry, logs,
+  diagnostics, automation, debugging, API, root cause -- so a technical/
+  analytical role (matching the Simbe example: investigate customer issues
+  via logs and telemetry, build automation tooling) sorts above a purely
+  relationship-management one, even though both still pass. Ranking only;
+  nothing is excluded by this score.
 - KEEP: internships/co-ops open to graduates.
 - KEEP: roles with blank/remote/unspecified locations (so nothing is lost).
 - DROP: senior / staff / principal / lead / director and level II+.

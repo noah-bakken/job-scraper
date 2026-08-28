@@ -170,6 +170,7 @@ COMPANIES = [
     {"name": "Nuro",             "ats": "greenhouse", "slug": "nuro"},
     {"name": "Samsara",          "ats": "greenhouse", "slug": "samsara"},
     {"name": "Verkada",          "ats": "greenhouse", "slug": "verkada"},
+    {"name": "Simbe Robotics",   "ats": "lever",      "slug": "SimbeRobotics"},
 
     # --- Broad "search anything" feeds: maintained new-grad lists spanning
     #     hundreds of companies each (startups + big cos), with apply links.
@@ -238,6 +239,18 @@ TITLE_INCLUDE = [
     "customer support specialist",
     "customer support coordinator",
     "customer support representative",
+    # "Technical support" is the same robotics/IoT-scoped category as
+    # "customer support" above, added after Simbe Robotics' "Technical
+    # Support Analyst - Contract to Hire" -- a real posting that would
+    # otherwise have been missed entirely (no "customer support" substring
+    # in the title at all). "Analyst" is included here specifically because
+    # that's the real title; not added to the customer-success/support list
+    # above since it hasn't shown up on a customer success/support posting.
+    "technical support analyst",
+    "technical support associate",
+    "technical support specialist",
+    "technical support representative",
+    "technical support coordinator",
 ]
 # Note on "Associate Product ___": we don't list "associate product" on its own,
 # because it also catches "Associate Product Engineer/Designer". "Associate
@@ -342,6 +355,16 @@ DESCRIPTION_EXCLUDE = [
 #
 # Raise to 1 or 2 to allow a stretch, or set to None to disable the filter.
 MAX_YEARS_EXPERIENCE = 0
+
+# Customer success/support commonly asks for 1-2 years even at the genuine
+# entry-level tier -- unlike product APM programs, which are built to be
+# 0-experience by design. Checked live after opening that category: every
+# currently-open posting matching the entry-level titles (associate/
+# specialist/coordinator/representative/analyst) wanted at least 1 year, so
+# MAX_YEARS_EXPERIENCE=0 meant zero matches there. Raised specifically for
+# this category on request; product roles keep the stricter ceiling above.
+# See _years_ceiling_for().
+MAX_YEARS_EXPERIENCE_SUPPORT = 2
 
 # When you graduated, as (year, month). Roles that target a LATER graduation
 # window aren't open to you: "you will graduate in Fall 2026 or Spring 2027"
@@ -580,6 +603,7 @@ HEADER = ["Date added", "Date posted", "Priority", "Company", "Title", "Location
 URL_COL = 7       # column G holds the URL (used for dedup)
 PRIORITY_IDX = 2  # index of the Priority cell within a row
 TITLE_IDX = 4     # index of the Title cell within a row
+URL_IDX = 6       # index of the URL cell within a row
 
 # Email (all read from env / GitHub secrets; email is skipped if unset)
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
@@ -1237,6 +1261,26 @@ def is_core_title(title):
     return False
 
 
+# Signals that a role leans technical/analytical -- scripting, telemetry,
+# data, automation -- rather than purely relationship-management-style
+# customer-facing work. Added after you flagged Simbe Robotics' "Technical
+# Support Analyst" as a perfect fit: Python/SQL/bash, telemetry, logs,
+# diagnostics, automation tooling, AI-assisted workflows, no people-
+# management or account-ownership language. Ranking only, same as
+# is_core_title() -- a support/success role missing all of these still
+# passes if it clears every other gate, it just sorts lower.
+TECHNICAL_RELEVANCE_TERMS = [
+    "python", "sql", "bash", "scripting", "script", "telemetry", "log data",
+    "logs", "diagnostic", "troubleshoot", "automation", "root cause",
+    "debugging", "data analysis", "api",
+]
+
+
+def technical_relevance_score(desc):
+    text = (desc or "").lower()
+    return sum(1 for term in TECHNICAL_RELEVANCE_TERMS if term in text)
+
+
 def _title_excluded(title):
     t = title.lower()
     for w in TITLE_EXCLUDE_WORDS:
@@ -1282,6 +1326,25 @@ def is_robotics_or_iot(title, desc, company):
     return any(term in text for term in ROBOTICS_IOT_TERMS)
 
 
+def _is_support_category_title(title):
+    """True for the customer success/support/technical support category,
+    as opposed to product roles -- see MAX_YEARS_EXPERIENCE_SUPPORT."""
+    return (
+        "customer success" in title
+        or "customer support" in title
+        or "technical support" in title
+    )
+
+
+def _years_ceiling_for(title):
+    """Which MAX_YEARS_EXPERIENCE* ceiling applies to a given (lowercased)
+    title. See MAX_YEARS_EXPERIENCE_SUPPORT for why this category gets its
+    own, looser number."""
+    if _is_support_category_title(title):
+        return MAX_YEARS_EXPERIENCE_SUPPORT
+    return MAX_YEARS_EXPERIENCE
+
+
 def matches(job):
     # US-only: anything naming a country outside the US is dropped. A listing
     # that names no country at all is kept (see is_non_us), and location
@@ -1293,14 +1356,15 @@ def matches(job):
         return False
     if not passes_title(job):
         return False
-    if "customer support" in title and "customer success" not in title:
+    if ("customer support" in title or "technical support" in title) and "customer success" not in title:
         if not is_robotics_or_iot(title, desc, job.get("company")):
             return False
     if any(p in desc for p in DESCRIPTION_EXCLUDE):
         return False
-    if MAX_YEARS_EXPERIENCE is not None:
+    ceiling = _years_ceiling_for(title)
+    if ceiling is not None:
         years = years_required(desc)
-        if years is not None and years > MAX_YEARS_EXPERIENCE:
+        if years is not None and years > ceiling:
             return False
         if has_senior_track_record_signal(desc):
             return False
@@ -1615,6 +1679,10 @@ def main(dry_run=False):
         existing_urls = set(_gspread_retry(ws.col_values, URL_COL))  # column G = URL
     today = datetime.date.today().isoformat()
     new_rows = []
+    # Row tuples don't carry description text, so technical_relevance_score()
+    # -- needed for sorting -- is stashed here by URL and looked up at sort
+    # time instead.
+    relevance_by_url = {}
 
     failed = []
     for c in COMPANIES:
@@ -1661,15 +1729,20 @@ def main(dry_run=False):
             company = (j.get("company") or "").strip() or c["name"]
             new_rows.append([today, posted, prio, company,
                              j["title"], j["location"], url, ""])
+            relevance_by_url[url] = technical_relevance_score(j.get("description"))
             existing_urls.add(url)
             kept += 1
         print(f"{c['name']}: {kept} new match(es)")
 
     if new_rows:
-        # Priority location first, then core product titles ahead of the
-        # rest, so they sit higher in the sheet -- see is_core_title().
+        # Priority location first, then core product titles, then (within
+        # the support/success category especially) roles leaning technical/
+        # analytical over purely relationship-management -- see
+        # technical_relevance_score(). All three are ranking only; nothing
+        # here was excluded by this sort.
         new_rows.sort(key=lambda r: (r[PRIORITY_IDX] != "Yes",
-                                     not is_core_title(r[TITLE_IDX])))
+                                     not is_core_title(r[TITLE_IDX]),
+                                     -relevance_by_url.get(r[URL_IDX], 0)))
         if dry_run:
             print("\n--- would add ---")
             for _added, posted, prio, company, title, location, url, _a in new_rows:

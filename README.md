@@ -32,11 +32,23 @@ appends new hits to a Google Sheet, and emails you a digest.
   **only at a robotics or IoT company** — generic customer support (retail,
   telecom, general SaaS) is out of scope. Checked against the title,
   description, and company name together for a robotics/IoT signal; see
-  `ROBOTICS_IOT_TERMS` and `is_robotics_or_iot()`. Six robotics/IoT companies
-  (Skydio, Figure AI, Agility Robotics, Nuro, Samsara, Verkada, Simbe
-  Robotics) are named
-  explicitly in `COMPANIES` so this has real sources to check, not just
-  whatever the New-Grad Feeds happen to carry.
+  `ROBOTICS_IOT_TERMS`/`ROBOTICS_IOT_CODES` and `is_robotics_or_iot()`.
+  "robot" and "iot" are matched as whole words only, not substrings —
+  plain substring matching let "Marriott International" through, since
+  "iot" hides inside "mar**riot**t"; confirmed live via the New-Grad Feed
+  before being fixed.
+  17 robotics/IoT companies (Skydio, Figure AI, Agility Robotics, Nuro,
+  Samsara, Verkada, Simbe Robotics, Serve Robotics, Corvus Robotics,
+  Gradient Robotics, Allen Control Systems, FS Studio, Sunday Robotics, Torc
+  Robotics, Path Robotics, Skild AI, Rocket Lab, Avride) are named explicitly
+  in `COMPANIES` for full coverage of each one's own postings. Most of these
+  were *found*, not hand-researched — they turned up in the New-Grad Feed
+  under names you'd never have thought to search for, which is exactly the
+  point of running that feed: it already reaches far beyond the named
+  companies in this file, for robotics/IoT and every other category. Named
+  boards just add completeness (every posting a company has, not only
+  whatever the feed happens to tag "new grad") and reliability (a feed can
+  drop a company; a named board won't).
 - Customer success/support gets its own experience ceiling,
   `MAX_YEARS_EXPERIENCE_SUPPORT` (default **2**), separate from product
   roles' `MAX_YEARS_EXPERIENCE` (default 0) -- see `_years_ceiling_for()`.

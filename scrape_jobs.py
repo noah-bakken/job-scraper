@@ -171,6 +171,22 @@ COMPANIES = [
     {"name": "Samsara",          "ats": "greenhouse", "slug": "samsara"},
     {"name": "Verkada",          "ats": "greenhouse", "slug": "verkada"},
     {"name": "Simbe Robotics",   "ats": "lever",      "slug": "SimbeRobotics"},
+    # Found via the New-Grad Feeds (see README) rather than hand-researched --
+    # every one of these showed up there under a company you'd never have
+    # named yourself, which is the whole point of running the feeds. Added
+    # explicitly anyway for fuller coverage of each company's *own* postings,
+    # not just whatever the aggregator happens to tag "new grad".
+    {"name": "Serve Robotics",       "ats": "ashby",      "slug": "serverobotics"},
+    {"name": "Corvus Robotics",      "ats": "ashby",      "slug": "corvus-robotics"},
+    {"name": "Gradient Robotics",    "ats": "ashby",      "slug": "gradientrobotics"},
+    {"name": "Allen Control Systems","ats": "ashby",      "slug": "allen-control-systems"},
+    {"name": "FS Studio",            "ats": "ashby",      "slug": "fs-studio"},
+    {"name": "Sunday Robotics",      "ats": "ashby",      "slug": "sunday"},
+    {"name": "Torc Robotics",        "ats": "greenhouse", "slug": "torcrobotics"},
+    {"name": "Path Robotics",        "ats": "greenhouse", "slug": "pathrobotics"},
+    {"name": "Skild AI",             "ats": "greenhouse", "slug": "skildai-careers"},
+    {"name": "Rocket Lab",           "ats": "greenhouse", "slug": "rocketlab"},
+    {"name": "Avride",               "ats": "greenhouse", "slug": "avride"},
 
     # --- Broad "search anything" feeds: maintained new-grad lists spanning
     #     hundreds of companies each (startups + big cos), with apply links.
@@ -1316,14 +1332,22 @@ def is_priority_location(loc):
 # these words (or use different ones) won't be recognized -- a real, known
 # limit, not chased further without a concrete missed example to work from.
 ROBOTICS_IOT_TERMS = [
-    "robot", "robotics", "iot", "internet of things", "smart home",
+    "robotics", "internet of things", "smart home",
     "connected device", "embedded system", "autonomous vehicle", "drone",
 ]
+# "robot" and "iot" are matched as whole words only (via _has_term's `codes`
+# argument), not substrings: "iot" is a real substring of "Marriott" (mar-
+# **riot**-t) and "robot" of a handful of unrelated words, so plain
+# substring matching would silently wave through any company whose name or
+# description happens to contain the letters, robotics or not. Confirmed
+# live: "Marriott International" postings from the New-Grad Feed matched
+# before this fix, from "iot" hiding inside the company name.
+ROBOTICS_IOT_CODES = ["robot", "iot"]
 
 
 def is_robotics_or_iot(title, desc, company):
     text = f"{title} {desc or ''} {company or ''}".lower()
-    return any(term in text for term in ROBOTICS_IOT_TERMS)
+    return _has_term(text, ROBOTICS_IOT_TERMS, ROBOTICS_IOT_CODES)
 
 
 def _is_support_category_title(title):

@@ -187,6 +187,38 @@ COMPANIES = [
     {"name": "Skild AI",             "ats": "greenhouse", "slug": "skildai-careers"},
     {"name": "Rocket Lab",           "ats": "greenhouse", "slug": "rocketlab"},
     {"name": "Avride",               "ats": "greenhouse", "slug": "avride"},
+    # Second pass, added to widen the customer/technical-support net beyond
+    # the original 15 -- every slug below was live-fetched and confirmed to
+    # return real, current postings for that exact company (not a stub or a
+    # name-collision board). Collisions caught and rejected this pass:
+    # greenhouse "archer" is a veterinary clinic, not Archer Aviation;
+    # greenhouse "kettle" is a marketing agency; ashby "notion" is the
+    # productivity software company, not the IoT sensor startup; ashby "arlo"
+    # is a healthcare company, not Arlo Technologies; lever "latch" is an
+    # effectively-empty stub board.
+    {"name": "Apptronik",             "ats": "greenhouse", "slug": "apptronik"},
+    {"name": "Kodiak Robotics",       "ats": "greenhouse", "slug": "kodiak"},
+    {"name": "Locus Robotics",        "ats": "greenhouse", "slug": "locusrobotics"},
+    {"name": "Diligent Robotics",     "ats": "greenhouse", "slug": "diligentrobotics"},
+    {"name": "Carbon Robotics",       "ats": "greenhouse", "slug": "carbonrobotics"},
+    {"name": "May Mobility",          "ats": "greenhouse", "slug": "maymobility"},
+    {"name": "Skyryse",               "ats": "greenhouse", "slug": "skyryse"},
+    {"name": "SimpliSafe",            "ats": "greenhouse", "slug": "simplisafe"},
+    {"name": "Anduril Industries",    "ats": "greenhouse", "slug": "andurilindustries"},
+    {"name": "Brain Corp",            "ats": "greenhouse", "slug": "braincorporation"},
+    {"name": "Epirus",                "ats": "greenhouse", "slug": "epirus"},
+    {"name": "Motional",              "ats": "greenhouse", "slug": "motional"},
+    {"name": "Zipline",               "ats": "greenhouse", "slug": "flyzipline"},
+    {"name": "Physical Intelligence", "ats": "ashby",      "slug": "physicalintelligence"},
+    {"name": "1X Technologies",       "ats": "ashby",      "slug": "1x"},
+    {"name": "Gecko Robotics",        "ats": "ashby",      "slug": "gecko-robotics"},
+    {"name": "Hadrian",               "ats": "ashby",      "slug": "hadrian-automation"},
+    {"name": "Eight Sleep",           "ats": "ashby",      "slug": "eightsleep"},
+    {"name": "Applied Intuition",     "ats": "ashby",      "slug": "applied"},
+    {"name": "Dexterity",             "ats": "lever",      "slug": "dexterity"},
+    {"name": "Cobalt Robotics",       "ats": "lever",      "slug": "cobaltrobotics"},
+    {"name": "Waabi",                 "ats": "lever",      "slug": "waabi"},
+    {"name": "Boston Dynamics",       "ats": "workday", "tenant": "bostondynamics", "wd_host": "wd1", "site": "Boston_Dynamics"},
 
     # --- Broad "search anything" feeds: maintained new-grad lists spanning
     #     hundreds of companies each (startups + big cos), with apply links.

@@ -83,7 +83,9 @@ COMPANIES = [
     {"name": "Plaid",       "ats": "ashby",      "slug": "plaid"},
     {"name": "Chime",       "ats": "greenhouse", "slug": "chime"},
     {"name": "Affirm",      "ats": "greenhouse", "slug": "affirm"},
-    {"name": "Marqeta",     "ats": "greenhouse", "slug": "marqeta"},
+    # Moved off Greenhouse (old board 404s; redirects to a stub with no API
+    # data) -- confirmed live on Ashby instead, 42 real current postings.
+    {"name": "Marqeta",     "ats": "ashby", "slug": "marqeta-inc"},
     {"name": "Mercury",     "ats": "greenhouse", "slug": "mercury"},
     {"name": "Betterment",  "ats": "greenhouse", "slug": "betterment"},
     {"name": "Carta",       "ats": "greenhouse", "slug": "carta"},
@@ -358,7 +360,22 @@ TITLE_EXCLUDE_WORDS = [
     # one that would otherwise pass -- "Associate, Actuarial" and "Senior
     # Actuarial Analyst" never matched TITLE_INCLUDE in the first place.
     "actuarial",
+    # Microsoft's own people-manager track for Program Management -- see
+    # MICROSOFT_TITLE_INCLUDE below for why bare "program manager" is
+    # accepted at all, scoped to Microsoft only. "senior"/"principal" above
+    # already catch Microsoft's other senior PM titles.
+    "group program manager",
 ]
+
+# Microsoft calls its product-management discipline "Program Manager", not
+# "Product Manager" -- including for new-grad hires (e.g. "Program Manager,
+# University Grad"). Bare "program manager" is deliberately NOT in
+# TITLE_INCLUDE above: at every other company it pulls in a lot of
+# non-entry-level roles that don't say "senior" in the title (see the note
+# on "associate project/program manager" below TITLE_INCLUDE). So this is
+# its own list, checked only when the job's company is literally "Microsoft"
+# (passes_title() below) -- it can't affect matching for any other company.
+MICROSOFT_TITLE_INCLUDE = ["program manager"]
 # Level tokens rejected only as whole words (so "ii" won't hit "hawaii").
 TITLE_EXCLUDE_TOKENS = {"ii", "iii", "iv"}
 
@@ -1286,6 +1303,15 @@ def passes_title(job):
         elif k in title:
             matched.add(k)
     if not matched:
+        # See MICROSOFT_TITLE_INCLUDE: bare "program manager" only counts at
+        # Microsoft. job["company"] is only populated for Microsoft's own
+        # source and for aggregator rows that name Microsoft as the
+        # employer -- every other source leaves it unset, so this can't
+        # match anywhere else.
+        if job.get("company") == "Microsoft" and any(
+            k in title for k in MICROSOFT_TITLE_INCLUDE
+        ):
+            return True
         return False
     # Only a bare acronym carried the match, so make sure it's really ours.
     if matched <= TITLE_ACRONYMS:
@@ -1753,6 +1779,15 @@ def main(dry_run=False):
             print(f"[warn] {c['name']} ({c['ats']}) failed: {e}")
             failed.append((c["name"], str(e).split("\n")[0][:120]))
             continue
+
+        # Microsoft's own fetcher doesn't set "company" (single-company
+        # sources never do), but passes_title() needs it to scope the bare
+        # "program manager" carve-out to Microsoft only. Scoped to this one
+        # ats so no other source's jobs gain a "company" field they didn't
+        # already have.
+        if c["ats"] == "microsoft":
+            for j in jobs:
+                j["company"] = c["name"]
 
         kept = 0
         for j in jobs:

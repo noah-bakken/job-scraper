@@ -165,30 +165,39 @@ COMPANIES = [
     #     probed live and confirmed to be the real company, not a stub or
     #     wrong board -- "figure" on greenhouse is Figure Lending, not this
     #     Figure (the humanoid-robotics one), same trap as the Disney/
-    #     Capital One examples above; the real one is "figureai". ---
-    {"name": "Skydio",           "ats": "ashby",      "slug": "skydio"},
-    {"name": "Figure AI",        "ats": "greenhouse", "slug": "figureai"},
-    {"name": "Agility Robotics", "ats": "greenhouse", "slug": "agilityrobotics"},
-    {"name": "Nuro",             "ats": "greenhouse", "slug": "nuro"},
-    {"name": "Samsara",          "ats": "greenhouse", "slug": "samsara"},
-    {"name": "Verkada",          "ats": "greenhouse", "slug": "verkada"},
-    {"name": "Simbe Robotics",   "ats": "lever",      "slug": "SimbeRobotics"},
+    #     Capital One examples above; the real one is "figureai".
+    #
+    #     "robotics": True marks every company in this section for the
+    #     Jobs 2.0 "any role" exception (see ROBOTICS_COMPANY_NAMES): ANY
+    #     new-grad-eligible posting at one of these companies is wanted,
+    #     not just the product/support titles matched everywhere else in
+    #     this file. Requested specifically because of the Boston Dynamics
+    #     connection -- extended to the whole roster, not just that one
+    #     company, since the reasoning ("worth a look even in a role you
+    #     wouldn't otherwise consider") applies equally to any of them. ---
+    {"name": "Skydio",           "ats": "ashby",      "slug": "skydio", "robotics": True},
+    {"name": "Figure AI",        "ats": "greenhouse", "slug": "figureai", "robotics": True},
+    {"name": "Agility Robotics", "ats": "greenhouse", "slug": "agilityrobotics", "robotics": True},
+    {"name": "Nuro",             "ats": "greenhouse", "slug": "nuro", "robotics": True},
+    {"name": "Samsara",          "ats": "greenhouse", "slug": "samsara", "robotics": True},
+    {"name": "Verkada",          "ats": "greenhouse", "slug": "verkada", "robotics": True},
+    {"name": "Simbe Robotics",   "ats": "lever",      "slug": "SimbeRobotics", "robotics": True},
     # Found via the New-Grad Feeds (see README) rather than hand-researched --
     # every one of these showed up there under a company you'd never have
     # named yourself, which is the whole point of running the feeds. Added
     # explicitly anyway for fuller coverage of each company's *own* postings,
     # not just whatever the aggregator happens to tag "new grad".
-    {"name": "Serve Robotics",       "ats": "ashby",      "slug": "serverobotics"},
-    {"name": "Corvus Robotics",      "ats": "ashby",      "slug": "corvus-robotics"},
-    {"name": "Gradient Robotics",    "ats": "ashby",      "slug": "gradientrobotics"},
-    {"name": "Allen Control Systems","ats": "ashby",      "slug": "allen-control-systems"},
-    {"name": "FS Studio",            "ats": "ashby",      "slug": "fs-studio"},
-    {"name": "Sunday Robotics",      "ats": "ashby",      "slug": "sunday"},
-    {"name": "Torc Robotics",        "ats": "greenhouse", "slug": "torcrobotics"},
-    {"name": "Path Robotics",        "ats": "greenhouse", "slug": "pathrobotics"},
-    {"name": "Skild AI",             "ats": "greenhouse", "slug": "skildai-careers"},
-    {"name": "Rocket Lab",           "ats": "greenhouse", "slug": "rocketlab"},
-    {"name": "Avride",               "ats": "greenhouse", "slug": "avride"},
+    {"name": "Serve Robotics",       "ats": "ashby",      "slug": "serverobotics", "robotics": True},
+    {"name": "Corvus Robotics",      "ats": "ashby",      "slug": "corvus-robotics", "robotics": True},
+    {"name": "Gradient Robotics",    "ats": "ashby",      "slug": "gradientrobotics", "robotics": True},
+    {"name": "Allen Control Systems","ats": "ashby",      "slug": "allen-control-systems", "robotics": True},
+    {"name": "FS Studio",            "ats": "ashby",      "slug": "fs-studio", "robotics": True},
+    {"name": "Sunday Robotics",      "ats": "ashby",      "slug": "sunday", "robotics": True},
+    {"name": "Torc Robotics",        "ats": "greenhouse", "slug": "torcrobotics", "robotics": True},
+    {"name": "Path Robotics",        "ats": "greenhouse", "slug": "pathrobotics", "robotics": True},
+    {"name": "Skild AI",             "ats": "greenhouse", "slug": "skildai-careers", "robotics": True},
+    {"name": "Rocket Lab",           "ats": "greenhouse", "slug": "rocketlab", "robotics": True},
+    {"name": "Avride",               "ats": "greenhouse", "slug": "avride", "robotics": True},
     # Second pass, added to widen the customer/technical-support net beyond
     # the original 15 -- every slug below was live-fetched and confirmed to
     # return real, current postings for that exact company (not a stub or a
@@ -198,29 +207,59 @@ COMPANIES = [
     # productivity software company, not the IoT sensor startup; ashby "arlo"
     # is a healthcare company, not Arlo Technologies; lever "latch" is an
     # effectively-empty stub board.
-    {"name": "Apptronik",             "ats": "greenhouse", "slug": "apptronik"},
-    {"name": "Kodiak Robotics",       "ats": "greenhouse", "slug": "kodiak"},
-    {"name": "Locus Robotics",        "ats": "greenhouse", "slug": "locusrobotics"},
-    {"name": "Diligent Robotics",     "ats": "greenhouse", "slug": "diligentrobotics"},
-    {"name": "Carbon Robotics",       "ats": "greenhouse", "slug": "carbonrobotics"},
-    {"name": "May Mobility",          "ats": "greenhouse", "slug": "maymobility"},
-    {"name": "Skyryse",               "ats": "greenhouse", "slug": "skyryse"},
-    {"name": "SimpliSafe",            "ats": "greenhouse", "slug": "simplisafe"},
-    {"name": "Anduril Industries",    "ats": "greenhouse", "slug": "andurilindustries"},
-    {"name": "Brain Corp",            "ats": "greenhouse", "slug": "braincorporation"},
-    {"name": "Epirus",                "ats": "greenhouse", "slug": "epirus"},
-    {"name": "Motional",              "ats": "greenhouse", "slug": "motional"},
-    {"name": "Zipline",               "ats": "greenhouse", "slug": "flyzipline"},
-    {"name": "Physical Intelligence", "ats": "ashby",      "slug": "physicalintelligence"},
-    {"name": "1X Technologies",       "ats": "ashby",      "slug": "1x"},
-    {"name": "Gecko Robotics",        "ats": "ashby",      "slug": "gecko-robotics"},
-    {"name": "Hadrian",               "ats": "ashby",      "slug": "hadrian-automation"},
-    {"name": "Eight Sleep",           "ats": "ashby",      "slug": "eightsleep"},
-    {"name": "Applied Intuition",     "ats": "ashby",      "slug": "applied"},
-    {"name": "Dexterity",             "ats": "lever",      "slug": "dexterity"},
-    {"name": "Cobalt Robotics",       "ats": "lever",      "slug": "cobaltrobotics"},
-    {"name": "Waabi",                 "ats": "lever",      "slug": "waabi"},
-    {"name": "Boston Dynamics",       "ats": "workday", "tenant": "bostondynamics", "wd_host": "wd1", "site": "Boston_Dynamics"},
+    {"name": "Apptronik",             "ats": "greenhouse", "slug": "apptronik", "robotics": True},
+    {"name": "Kodiak Robotics",       "ats": "greenhouse", "slug": "kodiak", "robotics": True},
+    {"name": "Locus Robotics",        "ats": "greenhouse", "slug": "locusrobotics", "robotics": True},
+    {"name": "Diligent Robotics",     "ats": "greenhouse", "slug": "diligentrobotics", "robotics": True},
+    {"name": "Carbon Robotics",       "ats": "greenhouse", "slug": "carbonrobotics", "robotics": True},
+    {"name": "May Mobility",          "ats": "greenhouse", "slug": "maymobility", "robotics": True},
+    {"name": "Skyryse",               "ats": "greenhouse", "slug": "skyryse", "robotics": True},
+    {"name": "SimpliSafe",            "ats": "greenhouse", "slug": "simplisafe", "robotics": True},
+    {"name": "Anduril Industries",    "ats": "greenhouse", "slug": "andurilindustries", "robotics": True},
+    {"name": "Brain Corp",            "ats": "greenhouse", "slug": "braincorporation", "robotics": True},
+    {"name": "Epirus",                "ats": "greenhouse", "slug": "epirus", "robotics": True},
+    {"name": "Motional",              "ats": "greenhouse", "slug": "motional", "robotics": True},
+    {"name": "Zipline",               "ats": "greenhouse", "slug": "flyzipline", "robotics": True},
+    {"name": "Physical Intelligence", "ats": "ashby",      "slug": "physicalintelligence", "robotics": True},
+    {"name": "1X Technologies",       "ats": "ashby",      "slug": "1x", "robotics": True},
+    {"name": "Gecko Robotics",        "ats": "ashby",      "slug": "gecko-robotics", "robotics": True},
+    {"name": "Hadrian",               "ats": "ashby",      "slug": "hadrian-automation", "robotics": True},
+    {"name": "Eight Sleep",           "ats": "ashby",      "slug": "eightsleep", "robotics": True},
+    {"name": "Applied Intuition",     "ats": "ashby",      "slug": "applied", "robotics": True},
+    {"name": "Dexterity",             "ats": "lever",      "slug": "dexterity", "robotics": True},
+    {"name": "Cobalt Robotics",       "ats": "lever",      "slug": "cobaltrobotics", "robotics": True},
+    {"name": "Waabi",                 "ats": "lever",      "slug": "waabi", "robotics": True},
+    {"name": "Boston Dynamics",       "ats": "workday", "tenant": "bostondynamics", "wd_host": "wd1", "site": "Boston_Dynamics", "robotics": True},
+
+    # --- Tech consulting: for the Jobs 2.0 "tech consulting" category (see
+    #     TITLE_INCLUDE_V2). Every slug below was live-fetched and confirmed
+    #     to return real, current postings for that exact company. Most
+    #     marquee strategy/Big-4 firms (McKinsey, Bain, BCG, Deloitte, PwC,
+    #     EY, KPMG, Accenture) run proprietary applicant systems, not one of
+    #     the 4 ATS platforms this scraper can read, and aren't here for
+    #     that reason -- not an oversight. One name collision caught and
+    #     rejected: greenhouse "bcg" is "Bohen Consulting Group" per its own
+    #     API payload, not Boston Consulting Group. Crowe and RSM US are
+    #     primarily audit/tax firms with a real but minority tech-consulting
+    #     practice mixed into a much larger non-tech posting volume --
+    #     included anyway since TITLE_INCLUDE_V2 only pulls the tech/
+    #     consulting-analyst-titled postings out of that volume, same as
+    #     everywhere else in this file. ---
+    {"name": "ThoughtWorks",             "ats": "greenhouse", "slug": "thoughtworks"},
+    {"name": "AlixPartners",             "ats": "greenhouse", "slug": "alixpartners"},
+    {"name": "Charles River Associates", "ats": "greenhouse", "slug": "charlesriverassociates"},
+    {"name": "West Monroe",              "ats": "greenhouse", "slug": "westmonroe4"},
+    {"name": "Point B",                  "ats": "lever",      "slug": "pointb"},
+    {"name": "Bounteous",                "ats": "lever",      "slug": "bounteous"},
+    {"name": "Coalfire",                 "ats": "lever",      "slug": "coalfire"},
+    {"name": "Guidehouse",       "ats": "workday", "tenant": "guidehouse",     "wd_host": "wd1",   "site": "External"},
+    {"name": "Protiviti",        "ats": "workday", "tenant": "roberthalf",     "wd_host": "wd1",   "site": "ProtivitiNA"},
+    {"name": "Crowe",            "ats": "workday", "tenant": "crowe",          "wd_host": "wd12",  "site": "External_Careers"},
+    {"name": "RSM US",           "ats": "workday", "tenant": "rsm",            "wd_host": "wd1",   "site": "RSMCareers"},
+    {"name": "Huron Consulting", "ats": "workday", "tenant": "huron",          "wd_host": "wd1",   "site": "huroncareers"},
+    {"name": "FTI Consulting",   "ats": "workday", "tenant": "fticonsulting",  "wd_host": "wd108", "site": "FTIConsultingCareers"},
+    {"name": "Baker Tilly",      "ats": "workday", "tenant": "bakertilly",     "wd_host": "wd5",   "site": "BTCareers"},
+    {"name": "Booz Allen Hamilton", "ats": "workday", "tenant": "bah",         "wd_host": "wd1",   "site": "BAH_Jobs"},
 
     # --- Broad "search anything" feeds: maintained new-grad lists spanning
     #     hundreds of companies each (startups + big cos), with apply links.
@@ -256,6 +295,13 @@ COMPANIES = [
     {"name": "Comcast",    "ats": "workday", "tenant": "comcast",    "wd_host": "wd115", "site": "Comcast_Careers"},
     {"name": "Target",     "ats": "workday", "tenant": "target",     "wd_host": "wd5",  "site": "targetcareers"},
 ]
+
+# Every company tagged "robotics": True above, by name. Used by the Jobs 2.0
+# "any role" exception (see classify_job) to recognize a robotics/IoT
+# company's own postings regardless of source -- a direct per-company fetch
+# (where the company is known from the COMPANIES entry itself) or a New-Grad
+# Feed row that happens to name one of these companies as the employer.
+ROBOTICS_COMPANY_NAMES = {c["name"] for c in COMPANIES if c.get("robotics")}
 
 # A title must contain one of these (case-insensitive) to be a match.
 TITLE_INCLUDE = [
@@ -365,6 +411,10 @@ TITLE_EXCLUDE_WORDS = [
     # accepted at all, scoped to Microsoft only. "senior"/"principal" above
     # already catch Microsoft's other senior PM titles.
     "group program manager",
+    # Sales Engineering's people-manager track (TITLE_INCLUDE_V2 below) --
+    # "senior"/"staff"/"principal"/"lead"/"director" above don't reliably
+    # appear on this specific title.
+    "sales engineering manager",
 ]
 
 # Microsoft calls its product-management discipline "Program Manager", not
@@ -377,7 +427,70 @@ TITLE_EXCLUDE_WORDS = [
 # (passes_title() below) -- it can't affect matching for any other company.
 MICROSOFT_TITLE_INCLUDE = ["program manager"]
 # Level tokens rejected only as whole words (so "ii" won't hit "hawaii").
-TITLE_EXCLUDE_TOKENS = {"ii", "iii", "iv"}
+# "v" added after a live Boston Dynamics posting, "Facilities Maintenance
+# Technician, V" -- caught this run only because its description happened to
+# state a years-required number; a posting without one would have slipped
+# through. No real job title uses a bare "V" for anything other than a level
+# suffix, so this is a safe addition, not a risk of a new false-positive drop.
+TITLE_EXCLUDE_TOKENS = {"ii", "iii", "iv", "v"}
+
+# ===========================================================================
+# Jobs 2.0: a second, broader category -- entry-level roles that bridge
+# technical teams and business goals (sales engineering, business analysis,
+# project coordination, QA, technical support) plus tech consulting analyst/
+# associate-consultant tracks. Written to a separate sheet tab with its own
+# email digest; see classify_job() for how a posting is routed to this
+# category vs. the product/support one above -- a posting only ever lands in
+# one tab, never both. TITLE_EXCLUDE_WORDS/TITLE_EXCLUDE_TOKENS above still
+# apply to these (checked via passes_title_v2 below), so "Senior Business
+# Analyst", "Business Analyst III", etc. are excluded the same way.
+#
+# Not scoped with "associate"/"junior" qualifiers the way TITLE_INCLUDE's
+# product-adjacent titles are (associate project/program manager): unlike
+# "program manager" or "project manager", none of these five are a
+# well-established senior-IC or people-manager title elsewhere, so the bare
+# term itself reads as entry-to-mid, and TITLE_EXCLUDE_WORDS above already
+# drops the genuinely senior postings.
+TITLE_INCLUDE_V2 = [
+    "sales engineer",
+    "sales engineering",
+    "business analyst",
+    "project coordinator",
+    "quality assurance analyst",
+    "qa analyst",
+    # Tech consulting: entry-level rotational/analyst titles. Deliberately
+    # not bare "consultant" -- that alone is used for senior/experienced
+    # hires industry-wide with no qualifying word to catch on (unlike
+    # "Associate Consultant" or "Consulting Analyst", which are the actual
+    # entry-level titles at firms that run campus/new-grad programs).
+    "technology consultant",
+    "technical consultant",
+    "associate consultant",
+    "business technology analyst",
+    "consulting analyst",
+]
+
+# "Technical Support Specialist" is also in TITLE_INCLUDE above (part of the
+# customer/technical-support cluster), but scoped there to robotics/IoT
+# companies only. At a non-robotics company, that same exact phrase belongs
+# in Jobs 2.0 instead of being dropped outright -- classify_job() checks
+# this by name; it's called out here as its own constant rather than folded
+# into TITLE_INCLUDE_V2 so that scoping logic stays visible in one place.
+TECHNICAL_SUPPORT_SPECIALIST_V2 = "technical support specialist"
+
+# A bare, uncategorized "Manager" title (Engineering Manager, Manager,
+# Logistics, Aviation Regulatory Program Manager, ...) is used near-
+# universally for a people-manager/leadership role. TITLE_EXCLUDE_WORDS
+# above doesn't reliably catch these on its own -- checked live against
+# Boston Dynamics and Skydio postings via the robotics "any role" exception,
+# and several genuinely senior "Manager" titles had no explicit
+# years-required number in their description for years_required() to catch
+# either. Only used to guard that one fallback (classify_job) -- a title
+# already accepted through passes_title/passes_title_v2/the technical-
+# support-specialist carve-out (Product Manager, Associate Program Manager,
+# TPM, etc.) is unaffected, since those are pre-vetted entry-level "Manager"
+# titles, not a generic one.
+_BARE_MANAGER_RE = re.compile(r"\bmanager\b", re.IGNORECASE)
 
 # If the description contains any of these, the role requires you to still be a
 # student, so it's dropped. This is the "not returning to school" filter.
@@ -663,6 +776,12 @@ EUROPE_CODES = {
 SHEET_ID = os.environ.get("SHEET_ID", "")
 SHEET_NAME = "Job Tracker"
 WORKSHEET_NAME = "Jobs"
+# Jobs 2.0: the broader tech/business-bridge + tech-consulting + robotics-
+# any-role category (see classify_job). Same sheet, same column layout
+# (HEADER), a separate tab the user already created by hand -- same name
+# used here must match that tab's actual name exactly (gspread lookup is
+# case-sensitive).
+WORKSHEET_NAME_V2 = "Jobs 2.0"
 HEADER = ["Date added", "Date posted", "Priority", "Company", "Title", "Location",
           "URL", "Applied?"]
 URL_COL = 7       # column G holds the URL (used for dedup)
@@ -1319,6 +1438,35 @@ def passes_title(job):
     return True
 
 
+def passes_title_v2(job):
+    """Title gate for the Jobs 2.0 category (TITLE_INCLUDE_V2) -- its own
+    category, independent of passes_title() above. Does not include
+    "technical support specialist" (see TECHNICAL_SUPPORT_SPECIALIST_V2,
+    handled separately in classify_job) or the robotics-company "any role"
+    exception (also classify_job) -- both need context (company/robotics
+    status) this function doesn't have."""
+    title = (job.get("title") or "").lower()
+    if _title_excluded(title):
+        return False
+    return any(k in title for k in TITLE_INCLUDE_V2)
+
+
+def passes_title_any(job, is_robotics=False):
+    """Cheap title(+robotics-flag)-only gate covering BOTH tabs, so main()
+    knows whether a job is worth paying for a description fetch before
+    classify_job() decides its actual category. Every way a job can end up
+    in either tab needs a branch here, or it's dropped before a description
+    is ever fetched for it."""
+    title = (job.get("title") or "").lower()
+    if passes_title(job) or passes_title_v2(job):
+        return True
+    if TECHNICAL_SUPPORT_SPECIALIST_V2 in title and not _title_excluded(title):
+        return True
+    if is_robotics and not _title_excluded(title):
+        return True
+    return False
+
+
 def is_core_title(title):
     """True if the title matches TITLE_INCLUDE_CORE -- the roles called out as
     highest priority (product manager/analyst/owner/ops), as opposed to the
@@ -1427,7 +1575,7 @@ def _years_ceiling_for(title):
     return MAX_YEARS_EXPERIENCE
 
 
-def matches(job):
+def matches(job, is_robotics=False):
     # US-only: anything naming a country outside the US is dropped. A listing
     # that names no country at all is kept (see is_non_us), and location
     # otherwise drives priority ranking (see is_priority_location).
@@ -1439,7 +1587,15 @@ def matches(job):
     if not passes_title(job):
         return False
     if ("customer support" in title or "technical support" in title) and "customer success" not in title:
-        if not is_robotics_or_iot(title, desc, job.get("company")):
+        # is_robotics is only ever passed by classify_job(), and only True
+        # for companies tagged "robotics": True in COMPANIES -- a more
+        # reliable signal than is_robotics_or_iot()'s text search, which
+        # depends on "company" being set on the job dict (unset for most
+        # direct-fetch sources) or the posting's own title/description
+        # happening to spell out "robotics"/"IoT"/etc. Every existing call
+        # site omits this argument, so its default leaves this check
+        # byte-for-byte identical to before.
+        if not (is_robotics or is_robotics_or_iot(title, desc, job.get("company"))):
             return False
     if any(p in desc for p in DESCRIPTION_EXCLUDE):
         return False
@@ -1457,6 +1613,59 @@ def matches(job):
         if grad is not None and grad > GRADUATED:
             return False
     return True
+
+
+def classify_job(job, is_robotics=False):
+    """Routes a job to 'core' (product/support tab), 'v2' (Jobs 2.0 tab), or
+    None (no match, drop it). A job lands in exactly one tab, never both:
+    'core' is checked first via matches() above -- left completely
+    unmodified, so every existing core-tab behavior is unchanged -- and only
+    a job matches() rejects gets a chance at 'v2'.
+
+    is_robotics is True when the job's employer is one of the companies
+    tagged "robotics": True in COMPANIES (see ROBOTICS_COMPANY_NAMES): ANY
+    new-grad-eligible role there qualifies for Jobs 2.0, not just a
+    title-category match -- the "even a role you wouldn't otherwise
+    consider" ask.
+    """
+    if matches(job, is_robotics=is_robotics):
+        return "core"
+
+    title = (job.get("title") or "").lower()
+    desc = (job.get("description") or "").lower()
+
+    if is_non_us(job.get("location")):
+        return None
+
+    v2_title_ok = (
+        passes_title_v2(job)
+        or (TECHNICAL_SUPPORT_SPECIALIST_V2 in title and not _title_excluded(title))
+        or (is_robotics and not _title_excluded(title) and not _BARE_MANAGER_RE.search(title))
+    )
+    if not v2_title_ok:
+        return None
+
+    # Same shared exclusions matches() applies for 'core', re-run here for
+    # 'v2': still-enrolled-student descriptions, the years-of-experience
+    # ceiling (and its senior/experienced-professional signals), and the
+    # graduation-window cutoff. Kept as a direct copy of matches()'s tail
+    # rather than factored out, so matches() itself never has to change.
+    if any(p in desc for p in DESCRIPTION_EXCLUDE):
+        return None
+    ceiling = _years_ceiling_for(title)
+    if ceiling is not None:
+        years = years_required(desc)
+        if years is not None and years > ceiling:
+            return None
+        if has_senior_track_record_signal(desc):
+            return None
+        if has_experienced_professional_signal(desc):
+            return None
+    if GRADUATED is not None:
+        grad = earliest_graduation_window(desc)
+        if grad is not None and grad > GRADUATED:
+            return None
+    return "v2"
 
 
 # ===========================================================================
@@ -1511,8 +1720,12 @@ def get_spreadsheet():
     return _gspread_retry(client.open, SHEET_NAME)
 
 
-def get_worksheet(create=True):
-    """Open the tracker worksheet, creating it and its header row if missing.
+def get_worksheet(create=True, name=WORKSHEET_NAME, header=HEADER):
+    """Open a tracker worksheet (default: the main "Jobs" tab), creating it
+    and its header row if missing. `name`/`header` let Jobs 2.0 (see
+    WORKSHEET_NAME_V2) reuse this same logic against its own tab -- every
+    existing call site omits both and keeps the original "Jobs" behavior
+    unchanged.
 
     Pass create=False for a read-only open (--dry-run): a missing worksheet
     returns None and a missing header is left alone, so opening the sheet to
@@ -1520,15 +1733,18 @@ def get_worksheet(create=True):
     """
     sh = get_spreadsheet()
     try:
-        ws = _gspread_retry(sh.worksheet, WORKSHEET_NAME)
+        ws = _gspread_retry(sh.worksheet, name)
     except gspread.WorksheetNotFound:
         if not create:
             return None
-        ws = _gspread_retry(sh.add_worksheet, title=WORKSHEET_NAME, rows=5000, cols=len(HEADER))
+        ws = _gspread_retry(sh.add_worksheet, title=name, rows=5000, cols=len(header))
     # gspread returns [[]] for an empty worksheet, which is truthy, so test for
-    # real cell content instead of list emptiness.
+    # real cell content instead of list emptiness. A worksheet the user
+    # already created by hand (e.g. Jobs 2.0) and left blank gets the header
+    # written here on first run, same as a brand-new one; one with existing
+    # content of its own is left alone either way.
     if create and not any(cell for row in _gspread_retry(ws.get_all_values) for cell in row):
-        _gspread_retry(ws.append_row, HEADER, value_input_option="USER_ENTERED")
+        _gspread_retry(ws.append_row, header, value_input_option="USER_ENTERED")
     return ws
 
 
@@ -1708,7 +1924,10 @@ def send_page_watch_email(label, url, snapshot):
 # ===========================================================================
 # Email digest
 # ===========================================================================
-def send_email(rows):
+def send_email(rows, category_label="product"):
+    """category_label customizes the subject/heading text only (e.g. "Jobs
+    2.0" for the second tab's digest) -- every existing call site omits it
+    and keeps the original "product" wording unchanged."""
     if not (SMTP_USER and SMTP_PASS and EMAIL_TO):
         print("[email] SMTP not configured, skipping email.")
         return
@@ -1731,12 +1950,12 @@ def send_email(rows):
             f"<span style='color:#666'>{html.escape(location)}{html.escape(when)}</span></li>"
         )
     msg = EmailMessage()
-    msg["Subject"] = f"{len(rows)} new product role(s), {n_prio} priority"
+    msg["Subject"] = f"{len(rows)} new {category_label} role(s), {n_prio} priority"
     msg["From"] = SMTP_USER
     msg["To"] = EMAIL_TO
     msg.set_content("\n".join(lines))
     msg.add_alternative(
-        f"<h3>{len(rows)} new product role(s)</h3>"
+        f"<h3>{len(rows)} new {html.escape(category_label)} role(s)</h3>"
         f"<p>{n_prio} in your preferred locations (shown first).</p>"
         f"<ul>{''.join(html_items)}</ul>",
         subtype="html",
@@ -1752,19 +1971,55 @@ def send_email(rows):
 # ===========================================================================
 # Main
 # ===========================================================================
+def _write_new_rows(ws, rows, relevance_by_url, dry_run, tab_label, email_label):
+    """Sort, then either print (--dry-run) or write to `ws` and email a
+    digest. Shared by both the "Jobs" and "Jobs 2.0" tabs -- identical logic,
+    just pointed at a different worksheet/row-set/email label."""
+    if not rows:
+        return
+    # Priority location first, then core product titles (a no-op tiebreaker
+    # for Jobs 2.0 rows, which never match TITLE_INCLUDE_CORE), then roles
+    # leaning technical/analytical over purely relationship-management --
+    # see technical_relevance_score(). All three are ranking only; nothing
+    # here was excluded by this sort.
+    rows.sort(key=lambda r: (r[PRIORITY_IDX] != "Yes",
+                             not is_core_title(r[TITLE_IDX]),
+                             -relevance_by_url.get(r[URL_IDX], 0)))
+    if dry_run:
+        print(f"\n--- would add ({tab_label}) ---")
+        for _added, posted, prio, company, title, location, url, _a in rows:
+            star = "* " if prio == "Yes" else "  "
+            when = f", posted {posted}" if posted else ""
+            print(f"{star}{company}: {title} ({location}{when})\n    {url}")
+    else:
+        row = _next_data_row(ws)
+        _gspread_retry(ws.update, rows, f"A{row}", value_input_option="USER_ENTERED")
+        try:
+            send_email(rows, category_label=email_label)
+        except Exception as e:
+            print(f"[warn] email failed ({tab_label}): {e}")
+
+
 def main(dry_run=False):
     ws = get_worksheet(create=not dry_run)
+    ws_v2 = get_worksheet(create=not dry_run, name=WORKSHEET_NAME_V2)
     if ws is None:
         print("[dry-run] Worksheet does not exist yet; treating it as empty.")
         existing_urls = set()
     else:
         existing_urls = set(_gspread_retry(ws.col_values, URL_COL))  # column G = URL
+    if ws_v2 is None:
+        existing_urls_v2 = set()
+    else:
+        existing_urls_v2 = set(_gspread_retry(ws_v2.col_values, URL_COL))
     today = datetime.date.today().isoformat()
     new_rows = []
+    new_rows_v2 = []
     # Row tuples don't carry description text, so technical_relevance_score()
     # -- needed for sorting -- is stashed here by URL and looked up at sort
-    # time instead.
+    # time instead. Separate per tab since a URL can only ever land in one.
     relevance_by_url = {}
+    relevance_by_url_v2 = {}
 
     failed = []
     for c in COMPANIES:
@@ -1789,14 +2044,27 @@ def main(dry_run=False):
             for j in jobs:
                 j["company"] = c["name"]
 
+        # True for a company tagged "robotics": True in COMPANIES -- see
+        # ROBOTICS_COMPANY_NAMES and classify_job() for the Jobs 2.0 "any
+        # role" exception this feeds.
+        is_robotics = bool(c.get("robotics"))
+
         kept = 0
+        kept_v2 = 0
         for j in jobs:
             url = j.get("url") or ""
-            if not url or url in existing_urls:
+            if not url or url in existing_urls or url in existing_urls_v2:
                 continue
+            # An aggregator row (New-Grad Feed) names its own employer per
+            # row, which can itself be a tracked robotics/IoT company even
+            # though the source (the feed) isn't one.
+            job_is_robotics = is_robotics or (
+                (j.get("company") or "") in ROBOTICS_COMPANY_NAMES
+            )
             # Gate on title and location first: both are free, and this keeps
-            # the fetch below to the handful of roles that could still qualify.
-            if not passes_title(j) or is_non_us(j.get("location")):
+            # the fetch below to the handful of roles that could still
+            # qualify for either tab.
+            if not passes_title_any(j, is_robotics=job_is_robotics) or is_non_us(j.get("location")):
                 continue
             # Also free: drop it if the source's own date already says it's
             # old, before spending a request on its description. See
@@ -1811,45 +2079,36 @@ def main(dry_run=False):
                 j["description"] = _fetch_description(url)
             if is_closed_posting(j["description"]):
                 continue
-            if not matches(j):
+            category = classify_job(j, is_robotics=job_is_robotics)
+            if category is None:
                 continue
             prio = "Yes" if is_priority_location(j.get("location")) else ""
             # Aggregator sources name the real employer per row; single-company
             # sources don't set this and fall back to the source name, which is
             # the company anyway.
             company = (j.get("company") or "").strip() or c["name"]
-            new_rows.append([today, posted, prio, company,
-                             j["title"], j["location"], url, ""])
-            relevance_by_url[url] = technical_relevance_score(j.get("description"))
-            existing_urls.add(url)
-            kept += 1
-        print(f"{c['name']}: {kept} new match(es)")
+            row = [today, posted, prio, company, j["title"], j["location"], url, ""]
+            relevance = technical_relevance_score(j.get("description"))
+            if category == "core":
+                new_rows.append(row)
+                relevance_by_url[url] = relevance
+                existing_urls.add(url)
+                kept += 1
+            else:
+                new_rows_v2.append(row)
+                relevance_by_url_v2[url] = relevance
+                existing_urls_v2.add(url)
+                kept_v2 += 1
+        print(f"{c['name']}: {kept} new match(es), {kept_v2} Jobs 2.0 match(es)")
 
-    if new_rows:
-        # Priority location first, then core product titles, then (within
-        # the support/success category especially) roles leaning technical/
-        # analytical over purely relationship-management -- see
-        # technical_relevance_score(). All three are ranking only; nothing
-        # here was excluded by this sort.
-        new_rows.sort(key=lambda r: (r[PRIORITY_IDX] != "Yes",
-                                     not is_core_title(r[TITLE_IDX]),
-                                     -relevance_by_url.get(r[URL_IDX], 0)))
-        if dry_run:
-            print("\n--- would add ---")
-            for _added, posted, prio, company, title, location, url, _a in new_rows:
-                star = "* " if prio == "Yes" else "  "
-                when = f", posted {posted}" if posted else ""
-                print(f"{star}{company}: {title} ({location}{when})\n    {url}")
-        else:
-            row = _next_data_row(ws)
-            _gspread_retry(ws.update, new_rows, f"A{row}", value_input_option="USER_ENTERED")
-            try:
-                send_email(new_rows)
-            except Exception as e:
-                print(f"[warn] email failed: {e}")
+    _write_new_rows(ws, new_rows, relevance_by_url, dry_run, "Jobs", "product")
+    _write_new_rows(ws_v2, new_rows_v2, relevance_by_url_v2, dry_run, "Jobs 2.0", "Jobs 2.0")
+
     n_prio = sum(1 for r in new_rows if r[PRIORITY_IDX] == "Yes")
+    n_prio_v2 = sum(1 for r in new_rows_v2 if r[PRIORITY_IDX] == "Yes")
     verb = "Would add" if dry_run else "Added"
-    print(f"\nDone. {verb} {len(new_rows)} new job(s) ({n_prio} priority).")
+    print(f"\nDone. {verb} {len(new_rows)} new job(s) ({n_prio} priority) to Jobs, "
+          f"{len(new_rows_v2)} new job(s) ({n_prio_v2} priority) to Jobs 2.0.")
     # A source that dies is caught above so one bad endpoint can't sink the
     # run, but that also means coverage can quietly drop to zero for months.
     # Say so out loud: "0 new jobs" and "0 new jobs because 2 sources are

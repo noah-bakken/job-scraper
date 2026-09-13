@@ -399,6 +399,14 @@ TITLE_INCLUDE_CORE = [
 TITLE_EXCLUDE_WORDS = [
     "senior", "sr.", "sr ", "staff", "principal", "lead", "director",
     "head of", "group product", "vp", "vice president", "manager iii",
+    # A C-suite title (Chief Information Security Officer, CTO, ...) has no
+    # years-of-experience number for years_required() to catch, and neither
+    # senior-signal detector caught it either -- confirmed live on a real
+    # Zipline "Chief Information Security Officer" posting that slipped
+    # through as a Jobs 2.0 match with no other signal blocking it at all.
+    # This is a global fix (not scoped to any one category/fallback): no
+    # legitimate entry-level posting is ever titled "Chief ___".
+    "chief",
     # "Actuarial Opportunities - Pet Insurance Product Management" matches
     # TITLE_INCLUDE on "product management", but it's an actuarial role filed
     # under a Product Management department tag, not a product job. Checked
@@ -468,6 +476,10 @@ TITLE_INCLUDE_V2 = [
     "associate consultant",
     "business technology analyst",
     "consulting analyst",
+    # From a real accepted match at an untracked company ("Entry Level Data
+    # Analyst - Business Analyst") -- kept bare since, like "Business
+    # Analyst" above, it isn't a well-established senior title elsewhere.
+    "data analyst",
 ]
 
 # "Technical Support Specialist" is also in TITLE_INCLUDE above (part of the
@@ -478,19 +490,84 @@ TITLE_INCLUDE_V2 = [
 # into TITLE_INCLUDE_V2 so that scoping logic stays visible in one place.
 TECHNICAL_SUPPORT_SPECIALIST_V2 = "technical support specialist"
 
-# A bare, uncategorized "Manager" title (Engineering Manager, Manager,
-# Logistics, Aviation Regulatory Program Manager, ...) is used near-
-# universally for a people-manager/leadership role. TITLE_EXCLUDE_WORDS
-# above doesn't reliably catch these on its own -- checked live against
-# Boston Dynamics and Skydio postings via the robotics "any role" exception,
-# and several genuinely senior "Manager" titles had no explicit
-# years-required number in their description for years_required() to catch
-# either. Only used to guard that one fallback (classify_job) -- a title
-# already accepted through passes_title/passes_title_v2/the technical-
-# support-specialist carve-out (Product Manager, Associate Program Manager,
-# TPM, etc.) is unaffected, since those are pre-vetted entry-level "Manager"
-# titles, not a generic one.
-_BARE_MANAGER_RE = re.compile(r"\bmanager\b", re.IGNORECASE)
+# The robotics "any role" exception (classify_job) turned out, in practice,
+# to mean "any role" too literally -- checked live against a real batch of
+# rejections at real robotics companies. Every title word below was a
+# confirmed miss, not a guess:
+#   manager     - Engineering Manager, Manager Logistics, Manager Technical
+#                 Support, Aviation Regulatory Program Manager: a people-
+#                 manager/leadership title with no reliable years-required
+#                 number in its description for years_required() to catch.
+#   engineer(ing) - Flight Test Engineer, Systems Engineer (Cybersecurity),
+#                 Production Engineer, Perception Engineer, Forward
+#                 Deployed Software Engineer: real engineering roles
+#                 requiring a CS/engineering background this user does not
+#                 have. Does not touch TITLE_INCLUDE_V2's "sales engineer"/
+#                 "sales engineering" -- that's a separate, earlier-checked
+#                 branch in classify_job, matched (or not) before this
+#                 fallback is ever reached.
+#   scientist   - Research Scientist: PhD-level qualifications.
+#   technician, factory, mechanic, assembler - Robot Service Technician
+#                 Assistant (14 near-duplicate postings alone), Autonomous
+#                 Semi Technician, Factory Technician: hourly/no-degree
+#                 roles ("doesn't need college diploma" was the recorded
+#                 reason on every one of these).
+#   recruiter, recruiting - Recruiting Coordinator: an explicit "don't want
+#                 recruiting" rejection.
+#   sales       - Sales Development Representative, seasonal Sales Agent:
+#                 "sales and pay too low" / "straight sales don't want".
+#                 Same non-interference with TITLE_INCLUDE_V2's "sales
+#                 engineer" as "engineer" above.
+#   warehouse, seasonal - the same shift-work/hourly shape as technician.
+#   programmer, crane, rigging, machinist, welder, cnc - manufacturing-floor
+#                 titles found live at Hadrian ("autonomous factories"): "CAM
+#                 Programmer" and "Lift Specialist" (rigging cranes and heavy
+#                 lift equipment, "hands-on, build-it-from-zero"), neither
+#                 catchable by the words above since neither title contains
+#                 "technician"/"factory"/etc.
+#   account executive - Zipline "Enterprise Account Executive": a
+#                 quota-carrying sales role not caught by bare "sales" since
+#                 the title doesn't contain that word.
+# Requiring an explicit "Bachelor's" mention in the description was tried
+# first and rejected: a real accepted match (Motional's "Associate Vehicle
+# Test Specialist") has no degree language in it at all, so that check
+# would have dropped a job that works. Title-based exclusion of what this
+# user has actually rejected is the more precise signal available so far.
+# Only guards this one fallback in classify_job -- a title already accepted
+# through passes_title/passes_title_v2/the technical-support-specialist
+# carve-out (Product Manager, Sales Engineer, Associate Program Manager,
+# TPM, etc.) is unaffected, matched via an earlier, independent check.
+_ROBOTICS_ANY_ROLE_EXCLUDE_TITLE_RE = re.compile(
+    r"\b(manager|engineer(?:ing)?|scientist|technician|factory|mechanic|"
+    r"assembler|recruiters?|recruiting|sales|warehouse|seasonal|programmer)\b",
+    re.IGNORECASE,
+)
+# These five are specific enough to also check against the description, not
+# just the title -- Hadrian's "Lift Specialist" says none of this in its own
+# title, only in the body ("critical lifts involving cranes and heavy
+# rigging"). The broader words above stay title-only: checking THOSE against
+# description text produced a real false exclusion live -- Motional's own
+# accepted "Associate Vehicle Test Specialist" match mentions "provide
+# feedback to engineering teams" in passing, which isn't the job itself
+# being an engineering role. "crane"/"rigging"/"machinist"/"welder"/"cnc"
+# don't have that everyday-collaboration-language problem.
+_ROBOTICS_ANY_ROLE_EXCLUDE_ANYWHERE_RE = re.compile(
+    r"\b(crane|rigging|machinist|welders?|cnc)\b", re.IGNORECASE)
+# Phrases, not single words -- "part-time"/"part time" needs its own check
+# since the hyphenated form isn't a clean \b-bounded word, and "account
+# executive" doesn't contain any of the single words above. Same evidence
+# base: every Avride/Diligent Robotics rejection had "part time" in the
+# title; Zipline's "Enterprise Account Executive" is the account-executive
+# case (see above). Title-only, same reasoning as the broad word list.
+_ROBOTICS_ANY_ROLE_EXCLUDE_PHRASES = ("part time", "part-time", "account executive")
+
+
+def _robotics_any_role_excluded(title, desc=""):
+    if _ROBOTICS_ANY_ROLE_EXCLUDE_TITLE_RE.search(title):
+        return True
+    if any(p in title for p in _ROBOTICS_ANY_ROLE_EXCLUDE_PHRASES):
+        return True
+    return bool(_ROBOTICS_ANY_ROLE_EXCLUDE_ANYWHERE_RE.search(f"{title} {desc}"))
 
 # If the description contains any of these, the role requires you to still be a
 # student, so it's dropped. This is the "not returning to school" filter.
@@ -558,24 +635,32 @@ GRADUATED = (2026, 5)
 # only genuinely new postings, not old ones sitting in the feed. Set to None
 # to disable.
 #
-# This only ever looks at a date the SOURCE supplied. Workday and the
-# New-Grad Feed give none (see the "Date posted" note in Known limits), Google
-# and Microsoft give none either, and _norm_date() already normalizes a
-# missing/unparseable date to "" -- so this filter never touches any of them,
-# and they keep contributing every currently-open match regardless of age,
-# exactly as before. Only Greenhouse (first_published), Ashby (publishedAt)
-# and Amazon (posted_date) are ever judged against this ceiling.
+# This looks at a date the SOURCE supplied (Greenhouse's first_published,
+# Ashby's publishedAt, Amazon's posted_date), or -- for a source whose API
+# gives none at all (Workday; also the New-Grad Feed, whose "url" leads to
+# the real company's own page) -- a "datePosted" pulled out of the fetched
+# description's JSON-LD block, once one is available (see
+# _extract_json_ld_date). Google and Microsoft still give nothing usable
+# either way, and _norm_date() normalizes a missing/unparseable date to "",
+# so this filter never touches those two, and they keep contributing every
+# currently-open match regardless of age.
 #
-# Caveat worth knowing up front, from the same Known limits section: even a
-# "real" date from those three is a first-posted date, not "currently open
-# since." A company that recycles one requisition every hiring cycle never
-# updates it, so a role that is genuinely open today can still read as older
-# than this ceiling and get dropped here (the README's own Databricks
-# "Summer 2027 internship posted 2023" example). That is a real, accepted
-# trade for this filter existing at all: a handful of false drops on recycled
-# listings, in exchange for the sheet not filling up with months-old reposts.
-# Raise the number, or set to None, if the sheet starts looking too thin.
-MAX_POSTING_AGE_DAYS = 45
+# Caveat worth knowing up front, from Known limits: even a "real" date is a
+# first-posted date, not "currently open since." A company that recycles one
+# requisition every hiring cycle never updates it, so a role that is
+# genuinely open today can still read as older than this ceiling and get
+# dropped here (the README's own Databricks "Summer 2027 internship posted
+# 2023" example). That is a real, accepted trade for this filter existing at
+# all: a handful of false drops on recycled listings, in exchange for the
+# sheet not filling up with old reposts.
+#
+# Tightened from 45 to 14 on request ("I only want jobs just as they're
+# posted for the first time and very recently") -- confirmed live this was
+# too loose in practice: an Adobe Workday posting from ~80 days earlier was
+# still getting surfaced, though that specific case also needed the JSON-LD
+# date fallback above to be checked against ANY ceiling at all. Raise the
+# number, or set to None, if the sheet starts looking too thin.
+MAX_POSTING_AGE_DAYS = 14
 
 _SEASON_MONTH = {"winter": 1, "spring": 5, "summer": 7, "fall": 9, "autumn": 9}
 # A year only counts as a graduation window if graduation-ish words sit near it,
@@ -591,7 +676,10 @@ _WORD_NUMBERS = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
     "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
 }
-_NUM = r"(\d{1,2}|" + "|".join(_WORD_NUMBERS) + r")"
+# \d{1,2}(?:\.\d+)? also catches a decimal like "1.5 years" (seen live on a
+# Datadog posting, "1.5 years as sales engineer") -- consider()'s float(tok)
+# handles the non-digit-string case this introduces.
+_NUM = r"(\d{1,2}(?:\.\d+)?|" + "|".join(_WORD_NUMBERS) + r")"
 # Phrases that look backward at history instead of stating a requirement
 # ("over the past 3 years we have..."), which would otherwise false-positive.
 _BACKWARD_LOOKING = re.compile(
@@ -616,8 +704,25 @@ _COMPANY_HISTORY = re.compile(
 _YEARS_EXPLICIT = [
     re.compile(rf"\b(?:at least|minimum(?: of)?|min\.?)\s+{_NUM}\s*\+?\s*(?:years?|yrs?)\b", re.I),
     re.compile(rf"\b{_NUM}\s*(?:\+|or more)\s*(?:years?|yrs?)\b", re.I),
+    # The qualifier can also come AFTER "years" instead of before it --
+    # confirmed live on a Datadog posting: "Ideally 1.5 years or greater as
+    # a Sales Engineer" (decimal handled by _NUM above). The pattern
+    # directly above this one only catches "N+/or more years", not
+    # "N years or more/greater".
+    re.compile(rf"\b{_NUM}\s*(?:years?|yrs?)\s*(?:or more|or greater)\b", re.I),
     # A range contributes its FLOOR, so "1-3 years" reads as 1 and survives.
     re.compile(rf"\b{_NUM}\s*(?:-|–|—|to)\s*\d{{1,2}}\s*(?:years?|yrs?)\b", re.I),
+    # "WORD (DIGIT)" convention: a spelled-out number immediately re-stated
+    # as a digit in parentheses, sometimes with a trailing "+" inside the
+    # parens too -- confirmed live on Guidehouse Workday postings:
+    # "MINIMUM of THREE (3) years", "Two (2+) plus years", "FOUR (4) or
+    # more years". The parenthetical breaks every pattern above's
+    # assumption that the number sits immediately next to "years" or its
+    # own qualifier; the digit inside the parens is captured directly and
+    # is authoritative, so the spelled-out word never needs parsing.
+    re.compile(
+        rf"\b(?:{'|'.join(_WORD_NUMBERS)})\s*\(\s*(\d{{1,2}})\s*\+?\s*\)"
+        rf"\s*(?:\+|or more|plus)?\s*(?:years?|yrs?)\b", re.I),
 ]
 # A bare "3 years" is ambiguous ("our 5 year vision"), so it only counts when a
 # word below sits nearby.
@@ -634,6 +739,15 @@ _INTERNSHIP_CONTEXT = re.compile(
 # _YEARS_EXPLICIT matches it and the role scores as needing 18 years. Fetching
 # full posting pages made this common, since that is where such forms live.
 _AGE_CONTEXT = re.compile(r"\s*(of age|years? old|or older)\b", re.I)
+# "A valid driver's license is required with a minimum of ten (10) years of
+# driving experience" / "maintain a clean driving record for the previous
+# 10 years" -- a driving-record eligibility bar on a vehicle-testing role
+# (Motional), not a work-experience requirement. Confirmed live: this read
+# as a 10-year requirement and dropped an otherwise-genuinely-entry-level
+# posting. "driving" right next to "experience"/"record" is specific enough
+# not to also swallow a real requirement phrased as, say, "experience
+# driving business outcomes."
+_DRIVING_RECORD_CONTEXT = re.compile(r"\bdriving\s+(?:experience|record)\b", re.I)
 
 # Search terms used by the search-endpoint adapters (amazon/google/microsoft/workday).
 SEARCH_QUERIES = [
@@ -730,6 +844,17 @@ NON_US_TERMS = [
     "istanbul", "united arab emirates", "dubai", "abu dhabi", "qatar", "doha",
     "saudi", "riyadh", "egypt", "cairo", "nigeria", "lagos", "kenya",
     "nairobi", "south africa", "johannesburg", "cape town",
+    # Added after a live Zipline leak: "Abidjan, Côte d'Ivoire" alone
+    # matched nothing here (a different posting's combined "...; Lagos,
+    # Nigeria" string happened to catch it via "nigeria" instead, masking
+    # the gap for the single-country postings). "côte d'ivoire" is listed
+    # in both apostrophe styles since the source uses a curly one
+    # ("Côte d’Ivoire") but a straight one is just as likely elsewhere;
+    # "abidjan" alone is enough regardless of apostrophe/accent handling.
+    # Ghana/Rwanda added too, from the same multi-country postings on this
+    # board.
+    "abidjan", "côte d'ivoire", "côte d’ivoire", "ivory coast",
+    "ghana", "accra", "rwanda", "kigali",
 ]
 # Three-letter country codes, as Amazon writes them ("Sao Paulo, BRA").
 NON_US_CODES = {
@@ -805,7 +930,22 @@ REQ_HEADERS = {"User-Agent": "Mozilla/5.0 (job-tracker)"}
 def _strip_html(raw):
     if not raw:
         return ""
-    text = html.unescape(raw)
+    # Some Greenhouse postings ship double- (or triple-) encoded content --
+    # confirmed live on an Anduril posting whose raw API content contained
+    # literal "&amp;nbsp;" -- a single html.unescape() only resolves the
+    # outer "&amp;" -> "&", leaving "&nbsp;" behind as literal text rather
+    # than the actual non-breaking-space character. That surviving "&nbsp;"
+    # isn't whitespace to any of years_required()'s regexes, silently
+    # breaking "Minimum of  2 – 4  years" into something
+    # unmatchable. Looping until unescaping stabilizes handles any encoding
+    # depth without needing to detect it; a normally-encoded (or plain)
+    # string is unaffected since the second call is a no-op.
+    text = raw
+    for _ in range(3):
+        unescaped = html.unescape(text)
+        if unescaped == text:
+            break
+        text = unescaped
     text = re.sub(r"<[^>]+>", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -977,15 +1117,22 @@ def fetch_workday(c):
                 break
             for j in postings:
                 path = j.get("externalPath", "")
-                if path in seen:
+                # No path means no real per-job URL -- confirmed live on a
+                # Boston Dynamics posting that fell back to the bare
+                # "https://bostondynamics.wd1.myworkdayjobs.com" domain and
+                # got added to the sheet as a dead link. Skip it outright
+                # rather than keep a row nobody can click through on.
+                if not path or path in seen:
                     continue
                 seen.add(path)
                 out.append({
                     "title": j.get("title", ""),
                     "location": j.get("locationsText", ""),
-                    "url": f"{base}/en-US/{site}{path}" if path else base,
+                    "url": f"{base}/en-US/{site}{path}",
                     # Workday only gives relative text ("Posted 5 Days Ago"),
-                    # which won't normalize to a real date, so leave it blank.
+                    # which won't normalize to a real date, so leave it
+                    # blank -- see _extract_json_ld_date() for the fallback
+                    # main() applies once the description is fetched.
                     "posted": "",
                     # Workday listing carries no description; title filter only.
                     "description": "",
@@ -1208,10 +1355,19 @@ def years_required(desc):
         window = text[max(0, m.start() - 40):m.end() + 50]
         if _INTERNSHIP_CONTEXT.search(window):
             return
+        if _DRIVING_RECORD_CONTEXT.search(window):
+            return
         if need_context and not _EXPERIENCE_CONTEXT.search(window):
             return
         tok = m.group(1)
-        val = int(tok) if tok.isdigit() else _WORD_NUMBERS[tok.lower()]
+        # tok.isdigit() is False for a decimal ("1.5"); the replace() check
+        # accepts exactly one "." among otherwise-digit characters.
+        if tok.isdigit():
+            val = int(tok)
+        elif tok.replace(".", "", 1).isdigit():
+            val = float(tok)
+        else:
+            val = _WORD_NUMBERS[tok.lower()]
         if best is None or val > best:
             best = val
 
@@ -1376,6 +1532,25 @@ def _fetch_description(url):
                 return ""
         time.sleep(delay)
     return ""
+
+
+# Many career pages -- Workday's included -- embed a schema.org JobPosting
+# JSON-LD block for SEO, with a real "datePosted" field. _strip_html() only
+# removes tags, so this JSON text survives as plain text in whatever
+# _fetch_description() returns; confirmed live on Guidehouse and Adobe
+# Workday postings (Adobe's read "datePosted": "2026-06-23", ~80 days
+# before this fix -- Workday's API gives no date at all, so nothing had
+# ever judged that posting's age).
+_JSON_LD_DATE_POSTED = re.compile(r'"datePosted"\s*:\s*"(\d{4}-\d{2}-\d{2})')
+
+
+def _extract_json_ld_date(desc):
+    """Best-effort fallback posted date for a source whose API gives none
+    (Workday; also the New-Grad Feed, whose "url" leads to the real
+    company's own posting page). Returns None when absent, which is every
+    source that already had a real "posted" value and never reaches this."""
+    m = _JSON_LD_DATE_POSTED.search(desc or "")
+    return m.group(1) if m else None
 
 
 def is_closed_posting(desc):
@@ -1558,7 +1733,14 @@ def is_robotics_or_iot(title, desc, company):
 
 def _is_support_category_title(title):
     """True for the customer success/support/technical support category,
-    as opposed to product roles -- see MAX_YEARS_EXPERIENCE_SUPPORT."""
+    as opposed to product roles -- see MAX_YEARS_EXPERIENCE_SUPPORT.
+
+    Any parenthetical is stripped before checking: "Sales Engineer 2
+    (Customer Success)" is a Sales Engineer role with a department tag, not
+    a support role. Confirmed live as a real miss without this -- a 1.5
+    year requirement passed under the support ceiling's 2 instead of the
+    correct base ceiling of 0 for TITLE_INCLUDE_V2's "sales engineer"."""
+    title = re.sub(r"\([^)]*\)", "", title)
     return (
         "customer success" in title
         or "customer support" in title
@@ -1640,7 +1822,7 @@ def classify_job(job, is_robotics=False):
     v2_title_ok = (
         passes_title_v2(job)
         or (TECHNICAL_SUPPORT_SPECIALIST_V2 in title and not _title_excluded(title))
-        or (is_robotics and not _title_excluded(title) and not _BARE_MANAGER_RE.search(title))
+        or (is_robotics and not _title_excluded(title) and not _robotics_any_role_excluded(title, desc))
     )
     if not v2_title_ok:
         return None
@@ -2079,6 +2261,17 @@ def main(dry_run=False):
                 j["description"] = _fetch_description(url)
             if is_closed_posting(j["description"]):
                 continue
+            # The source gave no "posted" date (Workday; also the New-Grad
+            # Feed before its real page was fetched above) -- try the
+            # JSON-LD fallback now that a description exists, and re-check
+            # staleness with it. See _extract_json_ld_date and
+            # MAX_POSTING_AGE_DAYS.
+            if not posted:
+                extracted = _extract_json_ld_date(j["description"])
+                if extracted:
+                    posted = extracted
+                    if is_stale(posted):
+                        continue
             category = classify_job(j, is_robotics=job_is_robotics)
             if category is None:
                 continue

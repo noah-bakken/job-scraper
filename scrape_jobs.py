@@ -595,6 +595,19 @@ DESCRIPTION_EXCLUDE = [
     "currently pursuing a degree",
     "currently pursuing a bachelor",
     "currently pursuing a master",
+    # Security clearance requirement -- a hard disqualifier, not a
+    # nice-to-have. "security clearance" alone catches most phrasings
+    # ("SECRET Security Clearance Required", "must possess an active
+    # security clearance", "eligible to obtain a security clearance");
+    # the rest catch the ones that don't say "security" right next to it.
+    "security clearance",
+    "top secret",
+    "ts/sci",
+    "sci clearance",
+    "clearance required",
+    "clearance eligib",
+    "active clearance",
+    "polygraph",
 ]
 
 # Drop roles asking for full-time experience you don't have. Listing phrasings
@@ -1487,6 +1500,29 @@ def earliest_graduation_window(desc):
     return best
 
 
+# Workable's own job pages (apply.workable.com/{account}/j/{shortcode}) are a
+# JS-rendered SPA -- a plain GET returns only the loading shell, no real
+# content. Confirmed live: an Avalore "Data Analyst" posting's "SECRET
+# Security Clearance Required" line (in the API's separate "requirements"
+# field, not even "description") was completely invisible to the generic
+# scrape below, so nothing could ever have caught it there.
+_WORKABLE_URL_RE = re.compile(r"apply\.workable\.com/([\w-]+)/j/([A-Za-z0-9]+)")
+
+
+def _fetch_workable_description(account, shortcode):
+    """Workable's API returns the real text directly, no rendering needed.
+    Combines description + requirements + benefits, since a real disqualifier
+    (a clearance requirement, an experience-level breakdown) can live in any
+    of the three -- confirmed live that Avalore's was in "requirements"."""
+    api = f"https://apply.workable.com/api/v1/accounts/{account}/jobs/{shortcode}"
+    r = requests.get(api, timeout=20, headers=REQ_HEADERS)
+    r.raise_for_status()
+    d = r.json()
+    return _join(_strip_html(d.get("description", "")),
+                 _strip_html(d.get("requirements", "")),
+                 _strip_html(d.get("benefits", "")))
+
+
 def _fetch_description(url):
     """Best-effort: read a posting's text straight off its page.
 
@@ -1496,6 +1532,11 @@ def _fetch_description(url):
     actually requires. That is not a small gap. It is why roles deleted from
     the sheet by hand reappear on the very next run, since the scraper cannot
     see the requirement the deletion was based on.
+
+    A Workable URL is delegated to _fetch_workable_description() instead of
+    the generic scrape below, which cannot see real Workable content at all
+    (see _WORKABLE_URL_RE). Falls through to the generic scrape if that API
+    call itself fails, rather than giving up outright.
 
     Retries a couple times on anything that looks transient (a network
     error, a timeout, or a non-404 bad status) before giving up: confirmed
@@ -1513,6 +1554,12 @@ def _fetch_description(url):
     which retrying can't fix), preserving the old keep-on-silence behaviour
     rather than dropping a role because its page is genuinely gone.
     """
+    m = _WORKABLE_URL_RE.search(url)
+    if m:
+        try:
+            return _fetch_workable_description(*m.groups())
+        except Exception:
+            pass  # fall through to the generic scrape below
     delays = (1, 2)
     for i, delay in enumerate((*delays, None)):
         try:

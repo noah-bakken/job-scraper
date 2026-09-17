@@ -560,6 +560,18 @@ _ROBOTICS_ANY_ROLE_EXCLUDE_ANYWHERE_RE = re.compile(
 # title; Zipline's "Enterprise Account Executive" is the account-executive
 # case (see above). Title-only, same reasoning as the broad word list.
 _ROBOTICS_ANY_ROLE_EXCLUDE_PHRASES = ("part time", "part-time", "account executive")
+# Round-the-clock operational roles (Kodiak's "Operations Specialist" --
+# "weekend and night shifts" -- and Zipline's "Visual Observer" -- "day,
+# night, and weekend shifts", "operational readiness") have a
+# professional-sounding title and no degree language at all, so nothing
+# above catches them. Requiring BOTH a bare "shift(s)" mention AND a
+# night/weekend/overnight word is a real, if imperfect, proxy for that
+# specific shape of role; checked against Motional's own accepted match, a
+# genuinely different case (a single incidental "shift" mention with
+# neither word nearby) to make sure this doesn't just repeat that mistake.
+_SHIFT_WORD_RE = re.compile(r"\bshifts?\b", re.IGNORECASE)
+_ROUND_THE_CLOCK_RE = re.compile(
+    r"\b(night|overnight|weekend|graveyard|swing shift)\b", re.IGNORECASE)
 
 
 def _robotics_any_role_excluded(title, desc=""):
@@ -567,7 +579,10 @@ def _robotics_any_role_excluded(title, desc=""):
         return True
     if any(p in title for p in _ROBOTICS_ANY_ROLE_EXCLUDE_PHRASES):
         return True
-    return bool(_ROBOTICS_ANY_ROLE_EXCLUDE_ANYWHERE_RE.search(f"{title} {desc}"))
+    text = f"{title} {desc}"
+    if _ROBOTICS_ANY_ROLE_EXCLUDE_ANYWHERE_RE.search(text):
+        return True
+    return bool(_SHIFT_WORD_RE.search(text) and _ROUND_THE_CLOCK_RE.search(text))
 
 # If the description contains any of these, the role requires you to still be a
 # student, so it's dropped. This is the "not returning to school" filter.
@@ -608,6 +623,22 @@ DESCRIPTION_EXCLUDE = [
     "clearance eligib",
     "active clearance",
     "polygraph",
+    # An advanced degree stated as the actual bar, not a nice-to-have --
+    # confirmed live on a Tower Research Capital "Data Analyst" posting's
+    # own "Qualifications" bullet: "Master's or PhD in Computer Science,
+    # Engineering, Mathematics, Statistics, Physics, Economics, or a
+    # related quantitative discipline". Deliberately not bare "master's" or
+    # "phd" -- those alone would also catch "Bachelor's required, Master's
+    # a plus," which is a real Bachelor's-level posting.
+    "master's or phd",
+    "phd or master's",
+    "master's degree or phd",
+    # A prior internship the candidate would already need to have
+    # completed, usually at this same company specifically -- confirmed
+    # live on a CenturyLink/Lumen "Business Analyst" posting: "Must have
+    # completed an internship within Data Analytics at Lumen Technologies."
+    # Not open to an external new grad without that exact prior internship.
+    "must have completed an internship",
 ]
 
 # Drop roles asking for full-time experience you don't have. Listing phrasings

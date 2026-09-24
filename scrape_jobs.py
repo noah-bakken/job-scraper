@@ -1875,7 +1875,143 @@ def matches(job, is_robotics=False):
     return True
 
 
+# ===========================================================================
+# Seniority gate: catches experienced-hire roles that never state a years
+# number, so years_required() returns None and nothing else stops them.
+# ===========================================================================
+# Confirmed live against four real postings -- two Mastercard "Manager, ..."
+# roles, OpenAI's "Product Manager, GTM Innovation" and "Technical Program
+# Manager, Multimodal". None states a years-required number; the Mastercard
+# pair list pay ranges of $130K-$254K, and all four are plainly experienced-
+# hire roles. The tell is the title: a bare "Manager" (Product Manager,
+# Technical Program Manager, "Manager, Product Operations") at an employer
+# that doesn't say early-career anywhere.
+#
+# Rules (from the criteria you gave):
+#   - A role with people-management responsibility is excluded.
+#   - A "Manager" title is excluded UNLESS the title or description clearly
+#     says early-career (associate/junior/APM/university/new grad/0-2 years).
+#     "Associate Product Manager" and "Program Manager, University Grad" pass;
+#     "Product Manager" and "Manager, Product Management" do not.
+#   - Senior/Lead/Principal/Director are already hard title excludes
+#     (TITLE_EXCLUDE_WORDS), with no early-career exception.
+#   - Roles that DO read early-career are ranked first (early_career_score).
+# The years-of-experience ceiling (MAX_YEARS_EXPERIENCE = 0) is unchanged and
+# already stricter than "3+ years".
+_MANAGER_WORD_RE = re.compile(r"\bmanager\b", re.I)
+# "associate" alone isn't enough when it's "Associate Manager" -- that's a
+# mid-level title at large companies, not an entry-level one.
+_EARLY_CAREER_TITLE_RE = re.compile(
+    r"\bassociate\b(?!\s+manager)|\bjunior\b|\bjr\b|\bapm\b|\brotational\b|"
+    r"\bnew[- ]grad\w*|\buniversity\b|\bearly[- ]career\b|\bentry[- ]level\b|"
+    r"\bgraduate\b|\bintern(?:ship)?\b|\btrainee\b", re.I)
+_EARLY_CAREER_DESC_PHRASES = (
+    "new grad", "new graduate", "recent graduate", "recent grad",
+    "recent college graduate", "recent university graduate", "early career",
+    "early-career", "entry level", "entry-level", "university grad",
+    "university program", "graduate program", "no prior experience",
+    "no experience required", "class of 2026", "class of 2027",
+    "2026 graduate", "2027 graduate",
+)
+_ZERO_TO_TWO_RE = re.compile(r"\b0\s*(?:-|–|—|to)\s*2\s*(?:years?|yrs?)\b", re.I)
+# Title words that rank a role up without exempting a "Manager" title.
+_RANK_TITLE_RE = re.compile(r"\b(analyst|coordinator)\b", re.I)
+# Deliberately NOT bare "manage teams"/"lead teams" (no article) -- confirmed
+# live as a false positive on a real Associate Product Manager posting:
+# "Ability to work effectively across functions and lead teams" is generic
+# cross-functional soft-skill boilerplate, not an actual management
+# responsibility. "manage/lead A team" (singular, definite) is concretely
+# about owning one specific team and doesn't have that problem.
+_PEOPLE_MGMT_PHRASES = (
+    "direct reports", "direct report", "people management", "people manager",
+    "manage a team", "manage and mentor", "manage and develop",
+    "managing a team", "manage the team",
+    "lead a team", "leading a team",
+    "lead and mentor", "lead and develop", "supervise a team",
+    "supervisory responsibilit", "supervise staff", "hire and manage",
+    "hiring and managing", "hire, develop", "build and manage a team",
+    "build and lead a team", "manage a group",
+)
+# A people-management phrase doesn't count when the words just before it
+# negate or soften it: "no direct reports", "without people management",
+# "an opportunity to grow into managing a team".
+_SOFTENER_RE = re.compile(
+    r"\b(no|not|without|never|opportunit\w*|grow\w*|eventual\w*|future|"
+    r"path to|potential|aspire\w*|learn\w*)\b|n't", re.I)
+_NEGATION_RE = re.compile(r"\b(not|non|no)\b|n't", re.I)
+
+
+def _phrase_hit(text, phrases, blocker_re, lookback):
+    """True if any phrase occurs in text at least once with none of
+    blocker_re's words in the `lookback` characters before it."""
+    for p in phrases:
+        start = 0
+        while True:
+            i = text.find(p, start)
+            if i < 0:
+                break
+            if not blocker_re.search(text[max(0, i - lookback):i]):
+                return True
+            start = i + len(p)
+    return False
+
+
+def has_people_management_signal(desc):
+    return _phrase_hit((desc or "").lower(), _PEOPLE_MGMT_PHRASES, _SOFTENER_RE, 45)
+
+
+def has_early_career_desc_signal(desc):
+    """True when the description itself clearly says early-career / new grad /
+    0-2 years. "not an entry-level role" does not count."""
+    text = (desc or "").lower()
+    if _ZERO_TO_TWO_RE.search(text):
+        return True
+    return _phrase_hit(text, _EARLY_CAREER_DESC_PHRASES, _NEGATION_RE, 20)
+
+
+def seniority_blocked(title, desc):
+    """True for a role that reads as experienced-hire even though nothing
+    states a years number. See the block comment above."""
+    title = (title or "").lower()
+    desc = (desc or "").lower()
+    if has_people_management_signal(desc):
+        return True
+    if _MANAGER_WORD_RE.search(title):
+        years = years_required(desc)
+        clearly_early = (
+            _EARLY_CAREER_TITLE_RE.search(title)
+            or has_early_career_desc_signal(desc)
+            or (years is not None and years <= 2)
+        )
+        if not clearly_early:
+            return True
+    return False
+
+
+def early_career_score(title, desc):
+    """0-2 ranking boost: one point for an early-career-shaped title (associate,
+    junior, university, new grad, analyst, coordinator...), one for an
+    early-career description. Ranking only -- nothing is excluded by it."""
+    title = (title or "").lower()
+    score = 0
+    if _EARLY_CAREER_TITLE_RE.search(title) or _RANK_TITLE_RE.search(title):
+        score += 1
+    if has_early_career_desc_signal(desc):
+        score += 1
+    return score
+
+
 def classify_job(job, is_robotics=False):
+    """Routes a job to 'core' or 'v2' (see _classify_job_raw), then applies the
+    seniority gate above to whichever it picked -- so a role that passed every
+    title/description/years check but reads as experienced-hire is dropped."""
+    category = _classify_job_raw(job, is_robotics=is_robotics)
+    if category and seniority_blocked(job.get("title"), job.get("description")):
+        return None
+    return category
+
+
+def _classify_job_raw(job, is_robotics=False):
     """Routes a job to 'core' (product/support tab), 'v2' (Jobs 2.0 tab), or
     None (no match, drop it). A job lands in exactly one tab, never both:
     'core' is checked first via matches() above -- left completely
@@ -2191,11 +2327,11 @@ def send_email(rows, category_label="product"):
     if not (SMTP_USER and SMTP_PASS and EMAIL_TO):
         print("[email] SMTP not configured, skipping email.")
         return
-    # Priority location first, then core product titles (product manager/
-    # analyst/owner/ops) ahead of the rest (technical program manager,
-    # associate project/program manager).
-    ordered = sorted(rows, key=lambda r: (r[PRIORITY_IDX] != "Yes",
-                                          not is_core_title(r[TITLE_IDX])))
+    # Rows arrive already ranked by _write_new_rows (priority location, then
+    # early-career, then core title, then technical relevance). This used to
+    # re-sort by priority + core title, which would now undo the early-career
+    # ordering, so it keeps the caller's order instead.
+    ordered = list(rows)
     n_prio = sum(1 for r in rows if r[PRIORITY_IDX] == "Yes")
     lines = [f"{len(rows)} new role(s) ({n_prio} in your preferred locations):\n"]
     html_items = []
@@ -2237,14 +2373,18 @@ def _write_new_rows(ws, rows, relevance_by_url, dry_run, tab_label, email_label)
     just pointed at a different worksheet/row-set/email label."""
     if not rows:
         return
-    # Priority location first, then core product titles (a no-op tiebreaker
-    # for Jobs 2.0 rows, which never match TITLE_INCLUDE_CORE), then roles
+    # Priority location first, then roles that read early-career (new grad,
+    # university program, associate, analyst, coordinator, 0-2 years -- see
+    # early_career_score), then core product titles (a no-op tiebreaker for
+    # Jobs 2.0 rows, which never match TITLE_INCLUDE_CORE), then roles
     # leaning technical/analytical over purely relationship-management --
-    # see technical_relevance_score(). All three are ranking only; nothing
+    # see technical_relevance_score(). All four are ranking only; nothing
     # here was excluded by this sort.
-    rows.sort(key=lambda r: (r[PRIORITY_IDX] != "Yes",
-                             not is_core_title(r[TITLE_IDX]),
-                             -relevance_by_url.get(r[URL_IDX], 0)))
+    def _rank(r):
+        early, tech = relevance_by_url.get(r[URL_IDX], (0, 0))
+        return (r[PRIORITY_IDX] != "Yes", -early,
+                not is_core_title(r[TITLE_IDX]), -tech)
+    rows.sort(key=_rank)
     if dry_run:
         print(f"\n--- would add ({tab_label}) ---")
         for _added, posted, prio, company, title, location, url, _a in rows:
@@ -2359,7 +2499,10 @@ def main(dry_run=False):
             # the company anyway.
             company = (j.get("company") or "").strip() or c["name"]
             row = [today, posted, prio, company, j["title"], j["location"], url, ""]
-            relevance = technical_relevance_score(j.get("description"))
+            # (early-career score, technical relevance) -- see
+            # _write_new_rows for how each is used in the sort.
+            relevance = (early_career_score(j["title"], j.get("description")),
+                         technical_relevance_score(j.get("description")))
             if category == "core":
                 new_rows.append(row)
                 relevance_by_url[url] = relevance

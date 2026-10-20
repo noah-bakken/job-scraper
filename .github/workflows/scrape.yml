@@ -29,6 +29,12 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    # ~2,000 sources are read each run; if a request ever hangs, free the
+    # concurrency slot instead of holding every later hourly run behind it.
+    # The first run after a rules change is the slow one (it re-reads every
+    # posting it can't remember rejecting, ~35 min offline); steady-state runs
+    # only read what's new and finish far sooner.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 

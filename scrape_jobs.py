@@ -109,8 +109,10 @@ COMPANIES = [
     {"name": "Linear",      "ats": "ashby",      "slug": "linear"},
     {"name": "Airtable",    "ats": "greenhouse", "slug": "airtable"},
     {"name": "Asana",       "ats": "greenhouse", "slug": "asana"},
-    {"name": "Amplitude",   "ats": "greenhouse", "slug": "amplitude"},
-    {"name": "Postman",     "ats": "greenhouse", "slug": "postman"},
+    # Moved from Greenhouse (404) to Ashby.
+    {"name": "Amplitude",   "ats": "ashby", "slug": "amplitude"},
+    # Postman: its Greenhouse board 404s and no replacement board could be found on
+    # Greenhouse/Lever/Ashby/Workable/SmartRecruiters, so it is not scraped.
     {"name": "Datadog",     "ats": "greenhouse", "slug": "datadog"},
     {"name": "Confluent",   "ats": "ashby",      "slug": "confluent"},
     {"name": "GitLab",      "ats": "greenhouse", "slug": "gitlab"},
@@ -211,7 +213,7 @@ COMPANIES = [
     {"name": "Kodiak Robotics",       "ats": "greenhouse", "slug": "kodiak", "robotics": True},
     {"name": "Locus Robotics",        "ats": "greenhouse", "slug": "locusrobotics", "robotics": True},
     {"name": "Diligent Robotics",     "ats": "greenhouse", "slug": "diligentrobotics", "robotics": True},
-    {"name": "Carbon Robotics",       "ats": "greenhouse", "slug": "carbonrobotics", "robotics": True},
+    {"name": "Carbon Robotics",       "ats": "ashby",      "slug": "carbon-robotics", "robotics": True},
     {"name": "May Mobility",          "ats": "greenhouse", "slug": "maymobility", "robotics": True},
     {"name": "Skyryse",               "ats": "greenhouse", "slug": "skyryse", "robotics": True},
     {"name": "SimpliSafe",            "ats": "greenhouse", "slug": "simplisafe", "robotics": True},
@@ -272,6 +274,23 @@ COMPANIES = [
     {"name": "New-Grad Feed (vanshb03)", "ats": "newgrad_feed",
      "feed_url": NEWGRAD_FEED_URL_VANSHB03},
 
+    # --- Curated early-career lists. These exist because a posting can be
+    #     on a company's own board and still be missed (a long-lived APM
+    #     program that ages out of a freshness window, or a board we don't
+    #     scrape at all); a list that someone is actively maintaining for
+    #     exactly this kind of role is a second, independent way to see it.
+    #     apmlist.org: APM / new-grad product-management programs (open ones
+    #     only). jobright.ai: three daily lists of roles posted in the last 7
+    #     days -- product management, business analyst, and data analysis. ---
+    {"name": "apmlist.org (APM New-Grad Roles)", "ats": "apmlist",
+     "page": "https://apmlist.org/APM-New-Grad-Roles"},
+    {"name": "Jobright (Product Management New Grad)", "ats": "jobright",
+     "readme": "https://raw.githubusercontent.com/jobright-ai/2026-Product-Management-New-Grad/master/README.md"},
+    {"name": "Jobright (Business Analyst New Grad)", "ats": "jobright",
+     "readme": "https://raw.githubusercontent.com/jobright-ai/2026-Business-Analyst-New-Grad/master/README.md"},
+    {"name": "Jobright (Data Analysis New Grad)", "ats": "jobright",
+     "readme": "https://raw.githubusercontent.com/jobright-ai/2026-Data-Analysis-New-Grad/master/README.md"},
+
     # --- Marquee search endpoints (best-effort; verify on first run) ---
     {"name": "Amazon",    "ats": "amazon"},
     {"name": "Google",    "ats": "google"},
@@ -295,6 +314,44 @@ COMPANIES = [
     {"name": "Comcast",    "ats": "workday", "tenant": "comcast",    "wd_host": "wd115", "site": "Comcast_Careers"},
     {"name": "Target",     "ats": "workday", "tenant": "target",     "wd_host": "wd5",  "site": "targetcareers"},
 ]
+
+# Sources added in bulk live in sources_extra.json (same shape as the entries
+# above) so this file stays readable: boards found by mining the real posting
+# links in the new-grad feeds, plus the transportation / mobility / IoT /
+# hardware-and-software companies. An entry already configured above (same
+# ATS and board) is skipped.
+def _load_extra_sources():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sources_extra.json")
+    if not os.path.exists(path):
+        # Running without it silently drops ~1,800 sources while looking
+        # healthy (a blanket *.json .gitignore rule once did exactly that).
+        import sys
+        print(f"[WARN] {path} not found -- running with only the {len(COMPANIES)} "
+              f"built-in sources", file=sys.stderr)
+        return []
+    with open(path, encoding="utf-8") as f:
+        extra = json.load(f)
+
+    def ident(c):
+        if c["ats"] == "workday":
+            return ("workday", c["tenant"].lower(), c.get("wd_host", "wd1"),
+                    c["site"].lower(), c.get("wd_domain", ""))
+        if c["ats"] == "oracle":
+            return ("oracle", c["host"].lower(), c["site"].lower())
+        return (c["ats"], (c.get("slug") or c.get("feed_url") or c.get("page")
+                           or c.get("readme") or c["name"]).lower())
+
+    have = {ident(c) for c in COMPANIES}
+    out = []
+    for c in extra:
+        k = ident(c)
+        if k not in have:
+            have.add(k)
+            out.append(c)
+    return out
+
+
+COMPANIES += _load_extra_sources()
 
 # Every company tagged "robotics": True above, by name. Used by the Jobs 2.0
 # "any role" exception (see classify_job) to recognize a robotics/IoT
@@ -399,6 +456,12 @@ TITLE_INCLUDE_CORE = [
 TITLE_EXCLUDE_WORDS = [
     "senior", "sr.", "sr ", "staff", "principal", "lead", "director",
     "head of", "group product", "vp", "vice president", "manager iii",
+    # "HBM Design Architect New Grad - MS or PhD": an advanced degree named in
+    # the title itself (the description filters only catch the written-out
+    # "Master's or PhD" form). And "Classified IT Asset & Procurement
+    # Administrator": a cleared role named in the title, which the clearance
+    # phrases in DESCRIPTION_EXCLUDE only catch if the body repeats it.
+    "phd", "classified",
     # A C-suite title (Chief Information Security Officer, CTO, ...) has no
     # years-of-experience number for years_required() to catch, and neither
     # senior-signal detector caught it either -- confirmed live on a real
@@ -539,9 +602,48 @@ TECHNICAL_SUPPORT_SPECIALIST_V2 = "technical support specialist"
 # TPM, etc.) is unaffected, matched via an earlier, independent check.
 _ROBOTICS_ANY_ROLE_EXCLUDE_TITLE_RE = re.compile(
     r"\b(manager|engineer(?:ing)?|scientist|technician|factory|mechanic|"
-    r"assembler|recruiters?|recruiting|sales|warehouse|seasonal|programmer)\b",
+    r"assembler|recruiters?|recruiting|sales|warehouse|seasonal|programmer|"
+    # Added after the exception was extended to large industrial employers
+    # (Avis, Caterpillar, Magna, GE, Cummins) and let through: summer interns
+    # marked "Returning Students", GM's PhD-style "Researcher" roles, and
+    # hourly plant/rental work.
+    r"interns?|internships?|co-?ops?|apprentice\w*|trainee|researcher|operator|"
+    r"driver|handler|inspector|detailer|cleaner|attendant|cashier|clerk|"
+    # Seen in the second full-scale run: construction "Laborer", sanitation,
+    # field installers, architect/developer (engineering by another name),
+    # and recruiting by its HR names ("Talent Acquisition Specialist").
+    r"laborer|labourer|worker|helper|custodian|janitor|sanitation|installers?|"
+    r"installations?|architect|developer|talent acquisition|talent advisor|"
+    r"talent partner|line specialist)\b",
     re.IGNORECASE,
 )
+# At a tagged (mobility / robotics / IoT / hardware) company, ANY non-excluded
+# title used to qualify. That was sized for a ~40-company roster of small
+# robotics startups; applied to ~190 companies including Avis, Caterpillar,
+# Magna, GE and Cummins it let in production operators, car detailers, rental
+# agents and drivers -- 72% of the Jobs 2.0 rows from those companies had no
+# business-role word in the title at all. A title must now look like the kind
+# of role this search is for: the shape of everything accepted so far
+# (Business Analyst, Project Coordinator, Purchasing Agent, Associate Vehicle
+# Test Specialist, Data Analyst), plus UX/design, since that's the background.
+# Deliberately NOT "consultant": ADT's 16 "Smart Home Consultant" postings are
+# in-home sales. Real consulting titles still match through TITLE_INCLUDE_V2
+# (technology/technical/associate consultant), which has its own scoping.
+# Early-career programs are always eligible (see _is_program_title).
+_ANY_ROLE_ALLOW_RE = re.compile(
+    r"\b(analyst|coordinator|specialist|planner|buyer|purchasing|procurement|"
+    r"sourcing|program|project|strategy|strategic|business|logistics|"
+    r"supply chain|financ\w*|marketing|account\w*|customer success|ux|designer|design)\b",
+    re.IGNORECASE,
+)
+
+
+def _any_role_title_ok(title):
+    # "Entry-Level - Physical Metallurgist" is a level, not a program, so
+    # "entry level" alone must not unlock the any-role path (it did, and let
+    # in GM's science-research roles); a real program word still does.
+    without_level = re.sub(r"entry[- ]level", "", title or "", flags=re.IGNORECASE)
+    return bool(_is_program_title(without_level) or _ANY_ROLE_ALLOW_RE.search(title or ""))
 # These five are specific enough to also check against the description, not
 # just the title -- Hadrian's "Lift Specialist" says none of this in its own
 # title, only in the body ("critical lifts involving cranes and heavy
@@ -640,6 +742,63 @@ DESCRIPTION_EXCLUDE = [
     # Not open to an external new grad without that exact prior internship.
     "must have completed an internship",
 ]
+
+# ---------------------------------------------------------------------------
+# Early-career PROGRAMS (APM, new-grad, rotational, launch programs).
+# ---------------------------------------------------------------------------
+# A program role is exempt from three filters that were silently dropping the
+# exact roles that matter most -- confirmed live against real misses:
+#   * Staleness (MAX_POSTING_AGE_DAYS). Programs stay open for weeks or months
+#     and keep their ORIGINAL posted date: Roblox's APM (posted Sept 2), Stripe's
+#     "Product Manager: New Grad Accelerator" (posted March), and Databricks'
+#     APM (first posted 2024, recycled every cycle) were all dropped as "stale"
+#     while still open and accepting applications. The 14-day limit was meant
+#     for ordinary roles; for a program the question is "is it open", and every
+#     board here only lists open postings.
+#   * "Currently enrolled" / "graduating between ..." language. Robinhood's APM
+#     New Grad program said "Currently enrolled in a full-time, degree-seeking
+#     program ... graduating between Winter 2026 and Summer 2027" -- standard
+#     wording in a new-grad program's own posting, which also takes recent
+#     graduates. The enrollment phrases below hit it, and so did the
+#     graduation-window cutoff, so it never reached the sheet.
+# Internships keep every one of these checks: an internship that requires you
+# to be enrolled really does require it.
+_PROGRAM_TITLE_RE = re.compile(
+    r"\bassociate product manager\b|\bapm\b|\bnew[- ]grad\w*|\buniversity\b|"
+    r"\bgraduate\b|\bearly[- ]career\b|\brotational\b|\brotation program\b|"
+    r"\blaunch (?:graduate )?program\b|\bleadership (?:development )?program\b|"
+    r"\baccelerator\b|\bcampus\b|\bclass of 20\d\d\b|\bentry[- ]level\b|"
+    r"\bproduct management analyst program\b|\btraining program\b|\bgrad program\b",
+    re.I)
+_INTERN_TITLE_RE = re.compile(r"\bintern(?:ship)?s?\b|\bco-?op\b", re.I)
+
+
+def _is_program_title(title):
+    t = title or ""
+    return bool(_PROGRAM_TITLE_RE.search(t)) and not _INTERN_TITLE_RE.search(t)
+
+
+# The DESCRIPTION_EXCLUDE entries a program role is NOT held to (see above).
+_ENROLLMENT_SOFT_PHRASES = frozenset({
+    "currently enrolled", "must be enrolled", "actively enrolled",
+    "will be enrolled", "enrolled throughout", "enrolled for the duration",
+    "enrolled in a degree", "expected graduation", "expected to graduate",
+    "anticipated graduation", "graduating in 2027", "graduating in 2028",
+    "rising senior", "rising junior",
+})
+
+
+def _description_excluded(title, desc):
+    """DESCRIPTION_EXCLUDE check, with the enrollment phrases waived for
+    early-career programs (see _is_program_title)."""
+    program = _is_program_title(title)
+    for p in DESCRIPTION_EXCLUDE:
+        if program and p in _ENROLLMENT_SOFT_PHRASES:
+            continue
+        if p in desc:
+            return True
+    return False
+
 
 # Drop roles asking for full-time experience you don't have. Listing phrasings
 # ("3+ years", "3-5 years", "at least three years", "minimum of 3 yrs") never
@@ -1101,8 +1260,7 @@ def is_non_us(loc):
 # ===========================================================================
 def fetch_greenhouse(c):
     url = f"https://boards-api.greenhouse.io/v1/boards/{c['slug']}/jobs?content=true"
-    r = requests.get(url, timeout=25, headers=REQ_HEADERS)
-    r.raise_for_status()
+    r = _request_retry("GET", url, tries=3, timeout=40, headers=REQ_HEADERS)
     return [{
         "title": j.get("title", ""),
         "location": (j.get("location") or {}).get("name", ""),
@@ -1115,8 +1273,7 @@ def fetch_greenhouse(c):
 
 def fetch_lever(c):
     url = f"https://api.lever.co/v0/postings/{c['slug']}?mode=json"
-    r = requests.get(url, timeout=25, headers=REQ_HEADERS)
-    r.raise_for_status()
+    r = _request_retry("GET", url, tries=3, timeout=40, headers=REQ_HEADERS)
     out = []
     for j in r.json():
         desc = j.get("descriptionPlain") or _strip_html(j.get("description", ""))
@@ -1134,8 +1291,7 @@ def fetch_lever(c):
 
 def fetch_ashby(c):
     url = f"https://api.ashbyhq.com/posting-api/job-board/{c['slug']}?includeCompensation=true"
-    r = requests.get(url, timeout=25, headers=REQ_HEADERS)
-    r.raise_for_status()
+    r = _request_retry("GET", url, tries=3, timeout=40, headers=REQ_HEADERS)
     return [{
         "title": j.get("title", ""),
         "location": j.get("location", ""),
@@ -1145,63 +1301,189 @@ def fetch_ashby(c):
     } for j in r.json().get("jobs", [])]
 
 
-def fetch_workday(c):
-    tenant, host, site = c["tenant"], c.get("wd_host", "wd1"), c["site"]
-    base = f"https://{tenant}.{host}.myworkdayjobs.com"
-    api = f"{base}/wday/cxs/{tenant}/{site}/jobs"
-    seen, out = set(), []
-    for q in SEARCH_QUERIES:
-        offset = 0
-        while offset <= 40:
-            body = {"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": q}
-            r = requests.post(api, json=body, timeout=25, headers=REQ_HEADERS)
+# Early-career-flavored searches, used ON TOP of SEARCH_QUERIES by the sources
+# that can only be searched rather than read in full (Amazon, Google,
+# Microsoft, and any Workday board past its result window). The product-only
+# SEARCH_QUERIES never surfaced things like Mastercard's "Launch Program"
+# rotations, whose titles contain none of those four phrases.
+EARLY_CAREER_QUERIES = [
+    "associate product manager", "new grad", "university graduate",
+    "early career", "rotational program", "launch program", "analyst",
+    "business analyst", "associate", "specialist", "coordinator",
+]
+WORKDAY_PAGE = 20       # Workday rejects anything bigger with HTTP 400
+WORKDAY_NEWEST = 400    # how many of a board's newest postings to read
+WORKDAY_QUERY_PAGES = 2  # pages (x20) read for each early-career search
+
+
+import threading
+_HOST_GATES = {}
+_HOST_GATES_LOCK = threading.Lock()
+
+
+def _host_gate(url):
+    """Cap simultaneous requests to one host. Workday and Oracle hosts belong
+    to a single employer (Boeing has three Workday sites on one tenant; Intel,
+    Northrop and Boeing got HTTP 429 in the full-scale run when their boards
+    were hit at full speed), so those get a tight limit. API hosts shared by
+    hundreds of employers (Greenhouse, Lever, Ashby...) get a loose one --
+    a tight gate there would funnel 600 boards through three slots."""
+    host = re.sub(r"^https?://", "", url).split("/")[0]
+    limit = 3 if re.search(r"myworkday|oraclecloud", host) else 16
+    with _HOST_GATES_LOCK:
+        return _HOST_GATES.setdefault(host, threading.Semaphore(limit))
+
+
+def _request_retry(method, url, tries=5, **kw):
+    """Send a request, retrying 429/5xx/network failures with growing backoff
+    (3s, 6s, 12s...). A big board takes dozens of requests, so one blip or one
+    rate-limit must not sink the lot."""
+    last = None
+    for i in range(tries):
+        try:
+            with _host_gate(url):
+                r = requests.request(method, url, **kw)
+            if r.status_code in (429, 500, 502, 503, 504):
+                last = requests.HTTPError(f"HTTP {r.status_code}")
+                time.sleep(min(30, 3 * 2 ** i))
+                continue
             r.raise_for_status()
-            postings = r.json().get("jobPostings", [])
+            return r
+        except requests.RequestException as e:
+            last = e
+            time.sleep(min(30, 3 * 2 ** i))
+    raise last
+
+
+def _post_json_retry(url, body, headers, tries=5):
+    return _request_retry("POST", url, tries=tries, json=body, timeout=30, headers=headers).json()
+
+
+def fetch_workday(c):
+    """Read a Workday board: its newest WORKDAY_NEWEST postings, plus
+    early-career searches across the whole board.
+
+    This used to run four product-flavored searches and keep the first 60
+    hits of each, which meant a role only appeared if its title/text matched
+    "product manager", "product analyst", "technical program manager" or
+    "product operations". Confirmed live: Mastercard's board holds 1,122
+    postings and we saw 177 of them; its rotational "Launch Program" roles
+    match none of those four searches, so they were invisible.
+
+    Workday lists a board NEWEST FIRST (checked on Mastercard, Salesforce and
+    Target: posting dates fall steadily with the offset), so a run that reads
+    the top of the list sees everything posted recently -- and since the
+    scraper runs hourly and remembers what it has seen, a posting only needs
+    to be inside that window once. Small boards are simply read in full. For
+    the long-lived early-career programs that sink below the newest window
+    while still open, the early-career searches reach into the whole board.
+    """
+    tenant, host, site = c["tenant"], c.get("wd_host", "wd1"), c["site"]
+    if c.get("wd_domain") == "myworkdaysite":
+        # Some employers sit on Workday's shared myworkdaysite.com instead of
+        # their own {tenant}.myworkdayjobs.com subdomain.
+        base = f"https://{host}.myworkdaysite.com"
+        link_prefix = f"{base}/en-US/recruiting/{tenant}/{site}"
+    else:
+        base = f"https://{tenant}.{host}.myworkdayjobs.com"
+        link_prefix = f"{base}/en-US/{site}"
+    api = f"{base}/wday/cxs/{tenant}/{site}/jobs"
+    headers = {**REQ_HEADERS, "Content-Type": "application/json"}
+    seen, out = set(), []
+
+    def add(postings):
+        for j in postings:
+            path = j.get("externalPath", "")
+            # No path means no real per-job URL -- confirmed live on a Boston
+            # Dynamics posting that fell back to the bare
+            # "https://bostondynamics.wd1.myworkdayjobs.com" domain and got
+            # added to the sheet as a dead link. Skip it outright rather
+            # than keep a row nobody can click through on.
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            out.append({
+                "title": j.get("title", ""),
+                "location": j.get("locationsText", ""),
+                "url": f"{link_prefix}{path}",
+                # Workday only gives relative text ("Posted 5 Days Ago"),
+                # which won't normalize to a real date, so leave it blank --
+                # see _extract_json_ld_date() for the fallback main() applies
+                # once the description is fetched.
+                "posted": "",
+                # Workday listing carries no description; title filter only.
+                "description": "",
+            })
+
+    def crawl(search_text, limit):
+        first = _post_json_retry(api, {"appliedFacets": {}, "limit": WORKDAY_PAGE,
+                                       "offset": 0, "searchText": search_text}, headers)
+        total = first.get("total", 0) or 0  # only reported on the first page
+        add(first.get("jobPostings", []))
+        for offset in range(WORKDAY_PAGE, min(total, limit), WORKDAY_PAGE):
+            try:
+                page = _post_json_retry(api, {"appliedFacets": {}, "limit": WORKDAY_PAGE,
+                                              "offset": offset, "searchText": search_text}, headers)
+            except Exception as e:
+                # Keep what was read rather than lose the whole board.
+                print(f"[warn] {c['name']} workday: stopped at offset {offset}: {e}")
+                break
+            postings = page.get("jobPostings", [])
             if not postings:
                 break
-            for j in postings:
-                path = j.get("externalPath", "")
-                # No path means no real per-job URL -- confirmed live on a
-                # Boston Dynamics posting that fell back to the bare
-                # "https://bostondynamics.wd1.myworkdayjobs.com" domain and
-                # got added to the sheet as a dead link. Skip it outright
-                # rather than keep a row nobody can click through on.
+            add(postings)
+        return total
+
+    total = crawl("", WORKDAY_NEWEST)
+    if total > WORKDAY_NEWEST:
+        for q in SEARCH_QUERIES + EARLY_CAREER_QUERIES:
+            crawl(q, WORKDAY_QUERY_PAGES * WORKDAY_PAGE)
+    return out
+
+
+AMAZON_PAGE = 100          # the API's max page size
+AMAZON_MAX_PER_QUERY = 500  # stop paging a single search after this many hits
+
+
+def fetch_amazon(c):
+    """US roles from Amazon's search API, paged to the end of each search.
+
+    Previously this took ONE page of 100 per search, so any search with more
+    than 100 hits (a plain "product manager" has ~500) silently dropped the
+    rest, and nothing early-career-flavored was searched at all. country=USA
+    keeps it to roles you can actually take; offset pages through the hits.
+    """
+    out, seen = [], set()
+    for q in SEARCH_QUERIES + EARLY_CAREER_QUERIES:
+        offset = 0
+        while offset < AMAZON_MAX_PER_QUERY:
+            r = requests.get("https://www.amazon.jobs/en/search.json",
+                             params={"base_query": q, "result_limit": AMAZON_PAGE,
+                                     "sort": "recent", "country": "USA",
+                                     "offset": offset},
+                             timeout=25, headers=REQ_HEADERS)
+            r.raise_for_status()
+            data = r.json()
+            jobs = data.get("jobs", [])
+            if not jobs:
+                break
+            for j in jobs:
+                path = j.get("job_path") or ""
                 if not path or path in seen:
                     continue
                 seen.add(path)
                 out.append({
                     "title": j.get("title", ""),
-                    "location": j.get("locationsText", ""),
-                    "url": f"{base}/en-US/{site}{path}",
-                    # Workday only gives relative text ("Posted 5 Days Ago"),
-                    # which won't normalize to a real date, so leave it
-                    # blank -- see _extract_json_ld_date() for the fallback
-                    # main() applies once the description is fetched.
-                    "posted": "",
-                    # Workday listing carries no description; title filter only.
-                    "description": "",
+                    "location": j.get("normalized_location") or j.get("location", ""),
+                    "url": "https://www.amazon.jobs" + path,
+                    "posted": j.get("posted_date", ""),
+                    "description": _join(_strip_html(j.get("description", "")),
+                                         _strip_html(j.get("basic_qualifications", "")),
+                                         _strip_html(j.get("preferred_qualifications", ""))),
                 })
-            offset += 20
-    return out
-
-
-def fetch_amazon(c):
-    out = []
-    for q in SEARCH_QUERIES:
-        r = requests.get("https://www.amazon.jobs/en/search.json",
-                         params={"base_query": q, "result_limit": 100, "sort": "recent"},
-                         timeout=25, headers=REQ_HEADERS)
-        r.raise_for_status()
-        for j in r.json().get("jobs", []):
-            out.append({
-                "title": j.get("title", ""),
-                "location": j.get("normalized_location") or j.get("location", ""),
-                "url": "https://www.amazon.jobs" + (j.get("job_path") or ""),
-                "posted": j.get("posted_date", ""),
-                "description": _join(_strip_html(j.get("description", "")),
-                                     _strip_html(j.get("basic_qualifications", "")),
-                                     _strip_html(j.get("preferred_qualifications", ""))),
-            })
+            offset += AMAZON_PAGE
+            if offset >= (data.get("hits") or 0):
+                break
     return out
 
 
@@ -1230,9 +1512,17 @@ def fetch_google(c):
     """
     out = []
     seen = set()
-    for q in SEARCH_QUERIES:
-        for page in range(1, GOOGLE_MAX_PAGES + 1):
-            r = requests.get(GOOGLE_RESULTS_URL, params={"q": q, "page": page},
+    # Each search is restricted to US roles. The first is Google's own
+    # "early career" level filter with no keyword at all: there are only ~120
+    # such roles in the US, so every one of them is read instead of hoping a
+    # keyword search happens to rank the APM program onto page 1-5 (it did
+    # not -- the US "Associate Product Manager" program was never fetched).
+    plans = [({"target_level": "EARLY", "location": "United States"}, 10)]
+    plans += [({"q": q, "location": "United States"}, GOOGLE_MAX_PAGES)
+              for q in SEARCH_QUERIES + EARLY_CAREER_QUERIES]
+    for base_params, max_pages in plans:
+        for page in range(1, max_pages + 1):
+            r = requests.get(GOOGLE_RESULTS_URL, params={**base_params, "page": page},
                              timeout=25, headers=REQ_HEADERS)
             r.raise_for_status()
             page_html = r.text
@@ -1270,39 +1560,71 @@ def fetch_google(c):
     return out
 
 
+MS_CAREERS = "https://apply.careers.microsoft.com"
+MS_MAX_PER_QUERY = 300
+
+
 def fetch_microsoft(c):
-    """Currently broken on Microsoft's side -- expect this to fail every run.
+    """US roles from Microsoft's current careers search (an Eightfold site).
 
-    gcsservices.careers.microsoft.com is CNAME'd to an Azure Front Door
-    endpoint that serves a certificate for *.azureedge.net, so the TLS
-    handshake fails hostname verification. That is a misconfiguration only
-    Microsoft can fix, and working around it would mean disabling certificate
-    verification, which is not worth doing for a job scraper.
+    The old gcsservices.careers.microsoft.com endpoint serves a certificate for
+    the wrong hostname, so every request failed TLS verification -- a
+    misconfiguration only Microsoft can fix, and one not worth working around
+    by switching verification off. Their careers site has since moved to
+    apply.careers.microsoft.com, whose JSON search answers normally once a
+    session cookie has been picked up from the main page (without one it
+    returns 429/403, which is why an earlier attempt concluded it was
+    closed). Search results carry no description; _fetch_description reads it
+    per posting from the detail endpoint, only for roles that pass the title
+    gate.
 
-    Their careers site has also moved to an Eightfold-hosted SPA
-    (apply.careers.microsoft.com) whose HTML contains no job data and whose
-    API answers 403 without a session, so there is no drop-in replacement to
-    scrape either. This is left in place, rather than deleted, so it recovers
-    on its own if Microsoft fixes the certificate; main() reports it as a
-    failed source on every run so the gap stays visible.
+    filter_seniority=Entry is Microsoft's own entry-level facet -- the ~45 US
+    roles it holds are read in full, then the product and early-career
+    searches run on top of that.
     """
-    out = []
-    for q in SEARCH_QUERIES:
-        r = requests.get("https://gcsservices.careers.microsoft.com/search/api/v1/search",
-                         params={"q": q, "l": "en_us", "pg": 1, "pgSz": 50, "o": "Recent"},
-                         timeout=25, headers=REQ_HEADERS)
-        r.raise_for_status()
-        result = ((r.json().get("operationResult") or {}).get("result") or {})
-        for j in result.get("jobs", []):
-            jid = j.get("jobId") or j.get("id") or ""
-            props = j.get("properties") or {}
-            out.append({
-                "title": j.get("title", ""),
-                "location": j.get("primaryLocation") or props.get("primaryLocation", ""),
-                "url": f"https://jobs.careers.microsoft.com/global/en/job/{jid}",
-                "posted": props.get("postingDate", ""),
-                "description": _strip_html(props.get("description", "")),
-            })
+    s = requests.Session()
+    s.headers.update({**REQ_HEADERS, "Accept": "application/json",
+                      "Referer": MS_CAREERS + "/careers"})
+    s.get(MS_CAREERS + "/careers", timeout=25)
+    out, seen = [], set()
+    plans = [{"filter_seniority": "Entry"}]
+    plans += [{"query": q} for q in SEARCH_QUERIES + EARLY_CAREER_QUERIES]
+    for extra in plans:
+        start = 0
+        while start < MS_MAX_PER_QUERY:
+            data = None
+            for attempt in range(3):
+                r = s.get(MS_CAREERS + "/api/pcsx/search",
+                          params={"domain": "microsoft.com", "location": "United States",
+                                  "start": start, **extra}, timeout=25)
+                if r.status_code == 429:
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                r.raise_for_status()
+                data = (r.json().get("data") or {})
+                break
+            if data is None:
+                raise requests.HTTPError("Microsoft search kept answering 429")
+            positions = data.get("positions") or []
+            if not positions:
+                break
+            for p in positions:
+                pid = p.get("id")
+                if not pid or pid in seen:
+                    continue
+                seen.add(pid)
+                locs = p.get("standardizedLocations") or p.get("locations") or []
+                out.append({
+                    "title": p.get("name", ""),
+                    "location": "; ".join(locs[:3]),
+                    "url": f"{MS_CAREERS}/careers/job/{pid}",
+                    "posted": p.get("postedTs", ""),  # epoch seconds
+                    "description": "",
+                })
+            start += len(positions)
+            if start >= (data.get("count") or 0):
+                break
+            time.sleep(0.25)
     return out
 
 
@@ -1334,6 +1656,281 @@ def fetch_newgrad_feed(c):
     return out
 
 
+ORACLE_NEWEST = 600   # newest postings read per Oracle careers site
+ORACLE_PAGE = 200     # the API accepts at least this many per request
+
+
+def fetch_oracle(c):
+    """Oracle HCM "Candidate Experience" careers sites (c["host"], c["site"]).
+
+    A large share of big employers (JPMorgan, Honeywell, Cummins, Amex, ...)
+    run their careers pages on Oracle, which none of the other adapters can
+    read. The public requisitions API sorts newest-first and returns each
+    posting's qualifications and responsibilities inline, so there is no
+    per-posting request and the experience filters have real text to read.
+    Non-US postings are dropped here (the API reports a country code), since
+    most of a global employer's newest postings are overseas. The list carries
+    no qualifications; _fetch_oracle_description reads them per posting.
+    """
+    host, site = c["host"], c["site"]
+    api = f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
+    out, offset = [], 0
+    while offset < ORACLE_NEWEST:
+        r = requests.get(api, params={
+            "onlyData": "true",
+            "expand": "requisitionList.secondaryLocations",
+            "finder": f"findReqs;siteNumber={site},limit={ORACLE_PAGE},offset={offset},"
+                      f"sortBy=POSTING_DATES_DESC"},
+            timeout=45, headers={**REQ_HEADERS, "Accept": "application/json"})
+        r.raise_for_status()
+        item = (r.json().get("items") or [{}])[0]
+        reqs = item.get("requisitionList") or []
+        if not reqs:
+            break
+        for q in reqs:
+            country = q.get("PrimaryLocationCountry")
+            if country and country != "US":
+                continue
+            out.append({
+                "title": q.get("Title", ""),
+                "location": q.get("PrimaryLocation", ""),
+                "url": f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}/job/{q['Id']}",
+                "posted": q.get("PostedDate", ""),
+                # The list view leaves the qualification fields empty (checked on
+                # Amex); the real text comes from the per-posting detail call in
+                # _fetch_description, only for roles that pass the title gate.
+                "description": "",
+            })
+        offset += ORACLE_PAGE
+        if offset >= (item.get("TotalJobsCount") or 0):
+            break
+    return out
+
+
+SR_NEWEST = 500  # newest postings read per SmartRecruiters company
+
+
+def fetch_smartrecruiters(c):
+    """SmartRecruiters public postings API (c["slug"] is the company
+    identifier, which is case-sensitive and sometimes suffixed -- "BoschGroup",
+    "Ubisoft2"). US roles only. The list carries no description;
+    _fetch_description reads it per posting, for roles that pass the title gate."""
+    out, offset, page = [], 0, 100
+    while True:
+        r = requests.get(f"https://api.smartrecruiters.com/v1/companies/{c['slug']}/postings",
+                         params={"limit": page, "offset": offset, "country": "us"},
+                         timeout=25, headers=REQ_HEADERS)
+        r.raise_for_status()
+        data = r.json()
+        content = data.get("content", [])
+        if not content:
+            break
+        for p in content:
+            loc = p.get("location") or {}
+            out.append({
+                "title": p.get("name", ""),
+                "location": loc.get("fullLocation")
+                            or ", ".join(x for x in (loc.get("city"), loc.get("region")) if x),
+                "url": f"https://jobs.smartrecruiters.com/{c['slug']}/{p['id']}",
+                "posted": p.get("releasedDate", ""),
+                "description": "",
+            })
+        offset += page
+        # Newest first (checked on ServiceNow and Bosch), so the top of the
+        # list is everything recent; the hourly run only needs to see a
+        # posting once.
+        if offset >= min(data.get("totalFound") or 0, SR_NEWEST):
+            break
+    return out
+
+
+_ORACLE_URL_RE = re.compile(
+    r"https?://([a-z0-9.-]+\.oraclecloud\.com)/hcmUI/CandidateExperience/[^/]+/sites/([A-Za-z0-9_]+)/job/(\d+)")
+
+
+def _fetch_oracle_description(host, site, req_id):
+    r = requests.get(f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails",
+                     params={"expand": "all", "onlyData": "true",
+                             "finder": f'ById;Id="{req_id}",siteNumber={site}'},
+                     timeout=30, headers={**REQ_HEADERS, "Accept": "application/json"})
+    r.raise_for_status()
+    d = (r.json().get("items") or [{}])[0]
+    return _join(_strip_html(d.get("ExternalDescriptionStr", "")),
+                 _strip_html(d.get("ExternalResponsibilitiesStr", "")),
+                 _strip_html(d.get("ExternalQualificationsStr", "")))
+
+
+_SR_URL_RE = re.compile(r"jobs\.smartrecruiters\.com/([^/?#]+)/(\d+)")
+
+
+def _fetch_smartrecruiters_description(company, posting_id):
+    r = requests.get(f"https://api.smartrecruiters.com/v1/companies/{company}/postings/{posting_id}",
+                     timeout=20, headers=REQ_HEADERS)
+    r.raise_for_status()
+    sections = ((r.json().get("jobAd") or {}).get("sections") or {})
+    return _join(*[_strip_html((sections.get(k) or {}).get("text", ""))
+                   for k in ("jobDescription", "qualifications", "additionalInformation")])
+
+
+def fetch_workable(c):
+    """Workable's public widget API (c["slug"] is the account). The list is
+    cheap; the full text (including the separate "requirements" field, where
+    clearance and experience bars tend to live) is read per posting by
+    _fetch_workable_description, for roles that pass the title gate."""
+    r = requests.get(f"https://apply.workable.com/api/v1/widget/accounts/{c['slug']}",
+                     params={"details": "true"}, timeout=25, headers=REQ_HEADERS)
+    r.raise_for_status()
+    out = []
+    for j in r.json().get("jobs", []):
+        if not j.get("shortcode"):
+            continue
+        loc = ", ".join(x for x in (j.get("city"), j.get("state"), j.get("country")) if x)
+        out.append({
+            "title": j.get("title", ""),
+            "location": loc,
+            "url": f"https://apply.workable.com/{c['slug']}/j/{j['shortcode']}/",
+            "posted": j.get("published_on") or j.get("created_at") or "",
+            "description": "",
+        })
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Curated early-career lists (aggregators)
+# ---------------------------------------------------------------------------
+_RSC_CHUNK_RE = re.compile(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)</script>', re.S)
+_RSC_JOB_RE = re.compile(r'\{"id":"([0-9a-f-]{36})","title":"')
+
+
+def fetch_apmlist(c):
+    """apmlist.org's APM / new-grad product-management programs (c["page"]).
+
+    A Next.js page with its data embedded in the HTML, built on Simplify's
+    database. It lists every program it has ever tracked (closed ones too), so
+    only entries flagged active AND visible are kept -- about 25 at a time.
+    Each entry's link is a Simplify click-through that redirects to the
+    employer's own posting; that real URL is what lands in the sheet, so the
+    same job found directly on the company's board is recognized as a
+    duplicate. The requirement/responsibility bullets stand in for a
+    description so the experience filters have something to read.
+    """
+    r = requests.get(c["page"], timeout=60, headers=REQ_HEADERS)
+    r.raise_for_status()
+    blob = "".join(_RSC_CHUNK_RE.findall(r.text))
+    blob = blob.encode("utf-8").decode("unicode_escape", errors="ignore")
+    dec = json.JSONDecoder()
+    out, seen, parsed = [], set(), 0
+    for m in _RSC_JOB_RE.finditer(blob):
+        try:
+            o, _ = dec.raw_decode(blob[m.start():])
+        except ValueError:
+            continue
+        parsed += 1
+        if o.get("id") in seen or not (o.get("active") and o.get("visible")):
+            continue
+        seen.add(o.get("id"))
+        company = (((o.get("job") or {}).get("company")) or {}).get("name", "")
+        click = o.get("url") or ""
+        real = click
+        try:
+            rr = requests.get(click, allow_redirects=False, timeout=20, headers=REQ_HEADERS)
+            if rr.status_code in (301, 302, 303, 307, 308) and rr.headers.get("location"):
+                real = rr.headers["location"]
+        except requests.RequestException:
+            pass
+        # Drop the tracking tail so the link reads (and dedups) as the employer's own.
+        real = re.sub(r"[?&]utm_source=Simplify\b.*$", "", real)
+        locs = [l.get("value", "") for l in (o.get("locations") or [])]
+        # mojibake in titles ("â" for an en dash) comes from the page's own encoding
+        title = o.get("title", "").replace("\u00e2\u0080\u0093", "-").replace("\u00e2\u0080\u0094", "-")
+        desc = _join(" ".join(o.get("subtitles") or []),
+                     " ".join(o.get("requirements") or []),
+                     " ".join(o.get("responsibilities") or []))
+        out.append({
+            "title": title,
+            "location": "; ".join(l for l in locs if l),
+            "url": real,
+            "posted": o.get("start_date", ""),
+            "description": desc,
+            "company": company,
+        })
+    # The page tracks hundreds of programs, closed ones included. Parsing none
+    # at all means the page's format changed, not that nothing is open -- say
+    # so (it lands in the failed-sources report) rather than quietly return [].
+    if not parsed:
+        raise RuntimeError("apmlist: no program records found -- the page format may have changed")
+    return out
+
+
+_JR_ROW_RE = re.compile(
+    r"^\|\s*(?P<company>.+?)\s*\|\s*\*\*\[(?P<title>.+?)\]\((?P<url>https://jobright\.ai/jobs/info/[0-9a-f]+)[^)]*\)\*\*"
+    r"\s*\|\s*(?P<loc>.*?)\s*\|\s*(?P<model>.*?)\s*\|\s*(?P<date>.*?)\s*\|\s*$")
+_JR_COMPANY_RE = re.compile(r"\*\*\[(?P<name>.+?)\]")
+
+
+def _jobright_posted(text):
+    """"Oct 20" -> an ISO date. The table gives no year, so a date that would
+    land in the future must belong to the previous year."""
+    try:
+        d = datetime.datetime.strptime(text.strip(), "%b %d").date()
+    except ValueError:
+        return ""
+    today = datetime.date.today()
+    d = d.replace(year=today.year)
+    if d > today:
+        d = d.replace(year=today.year - 1)
+    return d.isoformat()
+
+
+def fetch_jobright(c):
+    """A jobright.ai daily new-grad list (c["readme"] is the raw README): a
+    markdown table of roles posted in the last 7 days. The row's link is
+    jobright's own page for the role (it exposes no direct employer link);
+    _fetch_description reads qualifications and minimum years from that page.
+    A "↳" company cell means "same company as the row above"."""
+    r = requests.get(c["readme"], timeout=60, headers=REQ_HEADERS)
+    r.raise_for_status()
+    out, company = [], ""
+    for line in r.text.splitlines():
+        m = _JR_ROW_RE.match(line)
+        if not m:
+            continue
+        cm = _JR_COMPANY_RE.search(m.group("company"))
+        if cm:
+            company = cm.group("name")
+        out.append({
+            "title": m.group("title"),
+            "location": m.group("loc"),
+            "url": m.group("url"),
+            "posted": _jobright_posted(m.group("date")),
+            "description": "",
+            "company": company,
+        })
+    if not out:
+        raise RuntimeError("jobright: no rows parsed from the README -- its table format may have changed")
+    return out
+
+
+_JOBRIGHT_URL_RE = re.compile(r"jobright\.ai/jobs/info/([0-9a-f]+)")
+_NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
+
+
+def _fetch_jobright_description(url):
+    r = requests.get(url, timeout=25, headers=REQ_HEADERS)
+    r.raise_for_status()
+    m = _NEXT_DATA_RE.search(r.text)
+    job = json.loads(m.group(1))["props"]["pageProps"]["dataSource"]["jobResult"]
+    qual = job.get("qualifications") or {}
+    seniority = job.get("jobSeniority") or ""
+    return _join(
+        job.get("jobSummary", ""),
+        ("Seniority: " + seniority + ".") if seniority else "",
+        "Responsibilities: " + " ".join(job.get("coreResponsibilities") or []),
+        "Qualifications: " + " ".join(qual.get("mustHave") or []),
+        "Preferred: " + " ".join(qual.get("preferredHave") or []),
+    )
+
+
 FETCHERS = {
     "greenhouse": fetch_greenhouse,
     "lever": fetch_lever,
@@ -1343,6 +1940,11 @@ FETCHERS = {
     "google": fetch_google,
     "microsoft": fetch_microsoft,
     "newgrad_feed": fetch_newgrad_feed,
+    "smartrecruiters": fetch_smartrecruiters,
+    "oracle": fetch_oracle,
+    "workable": fetch_workable,
+    "apmlist": fetch_apmlist,
+    "jobright": fetch_jobright,
 }
 
 
@@ -1554,6 +2156,19 @@ def _fetch_workable_description(account, shortcode):
                  _strip_html(d.get("benefits", "")))
 
 
+# Microsoft's careers pages are a JS-rendered SPA like Workable's: a plain GET
+# returns an empty shell, so the real text comes from the detail endpoint.
+_MS_JOB_URL_RE = re.compile(r"apply\.careers\.microsoft\.com/careers/job/(\d+)")
+
+
+def _fetch_microsoft_description(position_id):
+    r = requests.get(MS_CAREERS + "/api/pcsx/position_details",
+                     params={"position_id": position_id, "domain": "microsoft.com", "hl": "en"},
+                     timeout=20, headers=REQ_HEADERS)
+    r.raise_for_status()
+    return _strip_html(((r.json().get("data") or {}).get("jobDescription")) or "")
+
+
 def _fetch_description(url):
     """Best-effort: read a posting's text straight off its page.
 
@@ -1591,6 +2206,29 @@ def _fetch_description(url):
             return _fetch_workable_description(*m.groups())
         except Exception:
             pass  # fall through to the generic scrape below
+    m = _MS_JOB_URL_RE.search(url)
+    if m:
+        try:
+            return _fetch_microsoft_description(m.group(1))
+        except Exception:
+            pass
+    m = _SR_URL_RE.search(url)
+    if m:
+        try:
+            return _fetch_smartrecruiters_description(*m.groups())
+        except Exception:
+            pass
+    m = _ORACLE_URL_RE.search(url)
+    if m:
+        try:
+            return _fetch_oracle_description(*m.groups())
+        except Exception:
+            pass
+    if _JOBRIGHT_URL_RE.search(url):
+        try:
+            return _fetch_jobright_description(url)
+        except Exception:
+            pass
     delays = (1, 2)
     for i, delay in enumerate((*delays, None)):
         try:
@@ -1620,6 +2258,21 @@ def _fetch_description(url):
 # before this fix -- Workday's API gives no date at all, so nothing had
 # ever judged that posting's age).
 _JSON_LD_DATE_POSTED = re.compile(r'"datePosted"\s*:\s*"(\d{4}-\d{2}-\d{2})')
+
+
+_JSON_LD_COUNTRY = re.compile(r'"addressCountry"\s*:\s*"([^"]+)"')
+_US_COUNTRY_NAMES = {"us", "usa", "united states", "united states of america", "u.s.", "u.s.a."}
+
+
+def _extract_non_us_country(desc):
+    """The country named in a posting page's JSON-LD block, when it isn't the
+    US. Workday's listing gives only a city or "3 Locations", so a German or
+    Czech plant posting passes the location check; the page itself states the
+    country. Returns None when absent or US."""
+    m = _JSON_LD_COUNTRY.search(desc or "")
+    if m and m.group(1).strip().lower() not in _US_COUNTRY_NAMES:
+        return m.group(1).strip()
+    return None
 
 
 def _extract_json_ld_date(desc):
@@ -1715,7 +2368,9 @@ def passes_title_any(job, is_robotics=False):
         return True
     if TECHNICAL_SUPPORT_SPECIALIST_V2 in title and not _title_excluded(title):
         return True
-    if is_robotics and not _title_excluded(title):
+    if (is_robotics and not _title_excluded(title) and _any_role_title_ok(title)
+            and not _ROBOTICS_ANY_ROLE_EXCLUDE_TITLE_RE.search(title)
+            and not any(p in title for p in _ROBOTICS_ANY_ROLE_EXCLUDE_PHRASES)):
         return True
     return False
 
@@ -1756,6 +2411,30 @@ def technical_relevance_score(desc):
     return sum(1 for term in TECHNICAL_RELEVANCE_TERMS if term in text)
 
 
+# Shift work and part-time/temporary hours, named in the title itself
+# ("Production Coordinator - 2nd Shift", "Box Truck Driver - PT", "Customer
+# Service Representative (Casual)"). Every one of those was a role of the
+# kind already rejected by hand, at every category -- not just the any-role
+# fallback.
+_HOURS_TITLE_RE = re.compile(
+    r"\bshifts?\b|\bpart[- ]time\b|(?:^|[-\u2013(|,/]\s*)pt\b\)?\s*$|\(pt\)|"
+    r"\bcasual\b|\bprn\b|\btemp(?:orary)?\b|\b(?:back|front) days\b", re.IGNORECASE)
+# A title written for another country: German/French gender tags ("(m/w/x)",
+# "(F/H)"), or an accented letter ("Mecanicien", "Tecnico", "Operator ve
+# vyrobe"). Workday often reports only a city or "3 Locations", so the
+# location check alone misses these -- confirmed live on Magna, Caterpillar,
+# Avis and GE Vernova postings.
+_FOREIGN_TITLE_RE = re.compile(
+    r"\((?:[mfwdxh])\s*/\s*[mfwdxh](?:\s*/\s*[mfwdxh])?\)|\bbac\s*\+\s*\d|"
+    r"\b(?:stagiaire|alternance|praktikum|werkstudent|ingeniero|tecnico|mecanico)\b",
+    re.IGNORECASE)
+
+
+def _is_foreign_title(title):
+    t = title or ""
+    return bool(_FOREIGN_TITLE_RE.search(t)) or any(ch.isalpha() and ord(ch) > 127 for ch in t)
+
+
 def _title_excluded(title):
     t = title.lower()
     for w in TITLE_EXCLUDE_WORDS:
@@ -1764,6 +2443,8 @@ def _title_excluded(title):
     for tok in TITLE_EXCLUDE_TOKENS:
         if re.search(rf"\b{re.escape(tok)}\b", t):
             return True
+    if _HOURS_TITLE_RE.search(title) or _is_foreign_title(title):
+        return True
     return False
 
 
@@ -1857,7 +2538,7 @@ def matches(job, is_robotics=False):
         # byte-for-byte identical to before.
         if not (is_robotics or is_robotics_or_iot(title, desc, job.get("company"))):
             return False
-    if any(p in desc for p in DESCRIPTION_EXCLUDE):
+    if _description_excluded(title, desc):
         return False
     ceiling = _years_ceiling_for(title)
     if ceiling is not None:
@@ -1868,7 +2549,10 @@ def matches(job, is_robotics=False):
             return False
         if has_experienced_professional_signal(desc):
             return False
-    if GRADUATED is not None:
+    # An early-career program's own graduation window ("graduating between
+    # Winter 2026 and Summer 2027") is the program's target cohort, not a
+    # reason to hide it -- see _is_program_title.
+    if GRADUATED is not None and not _is_program_title(title):
         grad = earliest_graduation_window(desc)
         if grad is not None and grad > GRADUATED:
             return False
@@ -2036,7 +2720,8 @@ def _classify_job_raw(job, is_robotics=False):
     v2_title_ok = (
         passes_title_v2(job)
         or (TECHNICAL_SUPPORT_SPECIALIST_V2 in title and not _title_excluded(title))
-        or (is_robotics and not _title_excluded(title) and not _robotics_any_role_excluded(title, desc))
+        or (is_robotics and not _title_excluded(title) and _any_role_title_ok(title)
+            and not _robotics_any_role_excluded(title, desc))
     )
     if not v2_title_ok:
         return None
@@ -2046,7 +2731,7 @@ def _classify_job_raw(job, is_robotics=False):
     # ceiling (and its senior/experienced-professional signals), and the
     # graduation-window cutoff. Kept as a direct copy of matches()'s tail
     # rather than factored out, so matches() itself never has to change.
-    if any(p in desc for p in DESCRIPTION_EXCLUDE):
+    if _description_excluded(title, desc):
         return None
     ceiling = _years_ceiling_for(title)
     if ceiling is not None:
@@ -2057,7 +2742,7 @@ def _classify_job_raw(job, is_robotics=False):
             return None
         if has_experienced_professional_signal(desc):
             return None
-    if GRADUATED is not None:
+    if GRADUATED is not None and not _is_program_title(title):
         grad = earliest_graduation_window(desc)
         if grad is not None and grad > GRADUATED:
             return None
@@ -2335,7 +3020,10 @@ def send_email(rows, category_label="product"):
     n_prio = sum(1 for r in rows if r[PRIORITY_IDX] == "Yes")
     lines = [f"{len(rows)} new role(s) ({n_prio} in your preferred locations):\n"]
     html_items = []
-    for _added, posted, prio, company, title, location, url, _a in ordered:
+    # A first run after adding sources can find hundreds. The best-ranked
+    # MAX_EMAIL_ROWS are listed; the rest are all in the sheet.
+    hidden = max(0, len(ordered) - MAX_EMAIL_ROWS)
+    for _added, posted, prio, company, title, location, url, _a in ordered[:MAX_EMAIL_ROWS]:
         star = "\u2b50 " if prio == "Yes" else ""
         when = f", posted {posted}" if posted else ""
         lines.append(f"- {star}{company}: {title} ({location}{when})\n  {url}")
@@ -2345,15 +3033,17 @@ def send_email(rows, category_label="product"):
             f"<a href='{html.escape(url)}'>{html.escape(title)}</a> "
             f"<span style='color:#666'>{html.escape(location)}{html.escape(when)}</span></li>"
         )
+    more_text = (f"\n...and {hidden} more -- all of them are in the sheet." if hidden else "")
+    more_html = (f"<p><b>...and {hidden} more</b> -- all of them are in the sheet.</p>" if hidden else "")
     msg = EmailMessage()
     msg["Subject"] = f"{len(rows)} new {category_label} role(s), {n_prio} priority"
     msg["From"] = SMTP_USER
     msg["To"] = EMAIL_TO
-    msg.set_content("\n".join(lines))
+    msg.set_content("\n".join(lines) + more_text)
     msg.add_alternative(
         f"<h3>{len(rows)} new {html.escape(category_label)} role(s)</h3>"
         f"<p>{n_prio} in your preferred locations (shown first).</p>"
-        f"<ul>{''.join(html_items)}</ul>",
+        f"<ul>{''.join(html_items)}</ul>{more_html}",
         subtype="html",
     )
     ctx = ssl.create_default_context()
@@ -2400,18 +3090,184 @@ def _write_new_rows(ws, rows, relevance_by_url, dry_run, tab_label, email_label)
             print(f"[warn] email failed ({tab_label}): {e}")
 
 
+# ---------------------------------------------------------------------------
+# Dedup keys: the same posting reaches us from several places (a company's own
+# board, the new-grad feeds, apmlist, jobright) under different URLs, and a
+# raw-string URL match treats those as different jobs. _url_key reduces a URL
+# to the posting's identity so a job already in the sheet isn't added again
+# just because a different source linked it differently.
+# ---------------------------------------------------------------------------
+_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def _url_key(url):
+    u = (url or "").strip().lower()
+    u = re.sub(r"^https?://(www\.)?", "", u).split("#")[0]
+    m = re.search(r"[?&]gh_jid=(\d+)", u)
+    if m:
+        return "gh:" + m.group(1)
+    host, _, rest = u.partition("/")
+    path = rest.split("?")[0].rstrip("/")
+    if host.endswith("greenhouse.io"):
+        m = re.search(r"jobs/(\d+)", path)
+        if m:
+            return "gh:" + m.group(1)
+    if host in ("jobs.lever.co", "jobs.ashbyhq.com"):
+        m = _UUID_RE.search(path)
+        if m:
+            return host.split(".")[1] + ":" + m.group(0)
+    path = re.sub(r"/apply$", "", path)
+    # A Workday posting is identified by its /job/... path; the same posting
+    # can be reachable under two career sites of one tenant (an external site
+    # and a campus site), so the site name must not be part of the key.
+    if "myworkday" in host:
+        m = re.search(r"/job/.+$", "/" + path)
+        if m:
+            return "wd:" + host.split(".")[0] + m.group(0)
+    path = re.sub(r"^[a-z]{2}-[a-z]{2}/", "", path)  # locale prefix (Workday's /en-US/)
+    return host + "/" + path
+
+
+def _norm_company(name):
+    n = re.sub(r"[^a-z0-9 ]", "", (name or "").lower())
+    n = re.sub(r"\b(inc|llc|corp|corporation|co|ltd|the|company)\b", "", n)
+    return re.sub(r"\s+", "", n)
+
+
+def _job_sig(company, title, location):
+    """(company, title, city) -- used ONLY to catch an aggregator row (a feed
+    or list) repeating a job a company's own board already supplied; two real
+    postings from the same board are never merged on this."""
+    city = re.split(r"[,;]", location or "")[0]
+    return (_norm_company(company), re.sub(r"[^a-z0-9]", "", (title or "").lower()),
+            re.sub(r"[^a-z0-9]", "", city.lower()))
+
+
+AGGREGATOR_ATS = {"newgrad_feed", "apmlist", "jobright"}
+MAX_EMAIL_ROWS = 150
+
+
+# ---------------------------------------------------------------------------
+# "Seen" worksheet: postings already evaluated and rejected, so an hourly run
+# doesn't re-download (and re-reject) the same few thousand descriptions every
+# time. Keyed to a hash of this file: ANY change to the code -- a new filter,
+# a loosened rule, a new company -- changes the hash and makes every old
+# rejection invisible, so a rule change can never leave a job hidden by a
+# verdict an older version of the rules reached.
+# ---------------------------------------------------------------------------
+SEEN_WORKSHEET = "Seen"
+SEEN_HEADER = ["Key", "Rules hash", "Date"]
+
+
+def _rules_hash():
+    import hashlib
+    h = hashlib.sha1()
+    with open(os.path.abspath(__file__), "rb") as f:
+        h.update(f.read())
+    # Which companies get the Jobs 2.0 "any role" treatment lives in the
+    # source list, not in this file -- a change there changes verdicts too.
+    h.update(",".join(sorted(ROBOTICS_COMPANY_NAMES)).encode())
+    return h.hexdigest()[:10]
+
+
+def _load_seen(sh, create):
+    """Returns (worksheet|None, set of rejected keys under the CURRENT rules,
+    whether the sheet holds rows from other rule versions)."""
+    try:
+        ws = _gspread_retry(sh.worksheet, SEEN_WORKSHEET)
+    except gspread.WorksheetNotFound:
+        if not create:
+            return None, set(), False
+        ws = _gspread_retry(sh.add_worksheet, title=SEEN_WORKSHEET, rows=1000, cols=len(SEEN_HEADER))
+        _gspread_retry(ws.append_row, SEEN_HEADER, value_input_option="RAW")
+        return ws, set(), False
+    rules = _rules_hash()
+    keys, other = set(), False
+    for row in _gspread_retry(ws.get_all_values)[1:]:
+        if len(row) < 2 or not row[0]:
+            continue
+        if row[1] == rules:
+            keys.add(row[0])
+        else:
+            other = True
+    return ws, keys, other
+
+
+def _save_seen(ws, current_keys, new_keys, had_other_versions):
+    today = datetime.date.today().isoformat()
+    rules = _rules_hash()
+    if had_other_versions:
+        # Rules changed since the last run: rewrite the sheet with only the
+        # current version rather than let dead rows pile up forever.
+        rows = [SEEN_HEADER] + [[k, rules, today] for k in sorted(current_keys | new_keys)]
+        _gspread_retry(ws.clear)
+        for i in range(0, len(rows), 5000):
+            chunk = rows[i:i + 5000]
+            _gspread_retry(ws.update, chunk, f"A{i + 1}", value_input_option="RAW")
+    elif new_keys:
+        rows = [[k, rules, today] for k in sorted(new_keys)]
+        for i in range(0, len(rows), 5000):
+            _gspread_retry(ws.append_rows, rows[i:i + 5000], value_input_option="RAW")
+
+
+def _iter_sources(chunk=40):
+    """Yield (company, jobs|None, error) for every source: fetched concurrently,
+    a chunk at a time, with each chunk's postings released once the caller
+    moves on (about 2,000 sources hold far too much to keep in memory at
+    once). Aggregators (feeds/lists) come LAST: they repeat jobs that company
+    boards also carry, and the dedup is only reliable if the board's copy was
+    seen first."""
+    import concurrent.futures as cf
+
+    def one(c):
+        fetcher = FETCHERS.get(c["ats"])
+        if not fetcher:
+            return c, None, f"unknown ats '{c['ats']}'"
+        try:
+            return c, fetcher(c), None
+        except Exception as e:
+            return c, None, str(e).split("\n")[0][:120]
+
+    ordered = ([c for c in COMPANIES if c["ats"] not in AGGREGATOR_ATS]
+               + [c for c in COMPANIES if c["ats"] in AGGREGATOR_ATS])
+    with cf.ThreadPoolExecutor(max_workers=12) as ex:
+        for i in range(0, len(ordered), chunk):
+            for result in list(ex.map(one, ordered[i:i + chunk])):
+                yield result
+
+
+def _prefetch_descriptions(jobs, workers=16):
+    """Fill in missing descriptions concurrently (these are one HTTP request
+    each, and a first run can need thousands)."""
+    import concurrent.futures as cf
+    need = [j for j in jobs if not (j.get("description") or "").strip()]
+    if not need:
+        return
+    with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+        for j, d in zip(need, ex.map(lambda j: _fetch_description(j["url"]), need)):
+            j["description"] = d
+
+
 def main(dry_run=False):
     ws = get_worksheet(create=not dry_run)
     ws_v2 = get_worksheet(create=not dry_run, name=WORKSHEET_NAME_V2)
+    sh = get_spreadsheet()
+    seen_ws, seen_rejected, seen_had_other = _load_seen(sh, create=not dry_run)
+    seen_current = set(seen_rejected)
+    newly_rejected = set()
+
+    existing_urls, existing_keys, existing_sigs = set(), set(), set()
+    for w in (ws, ws_v2):
+        if w is None:
+            continue
+        for row in _gspread_retry(w.get_all_values)[1:]:
+            if len(row) > URL_IDX and row[URL_IDX]:
+                existing_urls.add(row[URL_IDX])
+                existing_keys.add(_url_key(row[URL_IDX]))
+                if len(row) > 5:
+                    existing_sigs.add(_job_sig(row[3], row[4], row[5]))
     if ws is None:
         print("[dry-run] Worksheet does not exist yet; treating it as empty.")
-        existing_urls = set()
-    else:
-        existing_urls = set(_gspread_retry(ws.col_values, URL_COL))  # column G = URL
-    if ws_v2 is None:
-        existing_urls_v2 = set()
-    else:
-        existing_urls_v2 = set(_gspread_retry(ws_v2.col_values, URL_COL))
     today = datetime.date.today().isoformat()
     new_rows = []
     new_rows_v2 = []
@@ -2422,17 +3278,10 @@ def main(dry_run=False):
     relevance_by_url_v2 = {}
 
     failed = []
-    for c in COMPANIES:
-        fetcher = FETCHERS.get(c["ats"])
-        if not fetcher:
-            print(f"[warn] unknown ats '{c['ats']}' for {c['name']}, skipping")
-            failed.append((c["name"], f"unknown ats '{c['ats']}'"))
-            continue
-        try:
-            jobs = fetcher(c)
-        except Exception as e:
-            print(f"[warn] {c['name']} ({c['ats']}) failed: {e}")
-            failed.append((c["name"], str(e).split("\n")[0][:120]))
+    for c, jobs, err in _iter_sources():
+        if err is not None:
+            print(f"[warn] {c['name']} ({c['ats']}) failed: {err}")
+            failed.append((c["name"], err))
             continue
 
         # Microsoft's own fetcher doesn't set "company" (single-company
@@ -2448,12 +3297,20 @@ def main(dry_run=False):
         # ROBOTICS_COMPANY_NAMES and classify_job() for the Jobs 2.0 "any
         # role" exception this feeds.
         is_robotics = bool(c.get("robotics"))
+        is_aggregator = c["ats"] in AGGREGATOR_ATS
 
-        kept = 0
-        kept_v2 = 0
+        # ---- cheap gates: title, location, freshness, already-known ----
+        candidates = []
         for j in jobs:
             url = j.get("url") or ""
-            if not url or url in existing_urls or url in existing_urls_v2:
+            if not url or url in existing_urls:
+                continue
+            key = _url_key(url)
+            if key in existing_keys or key in seen_rejected:
+                continue
+            company = (j.get("company") or "").strip() or c["name"]
+            # A list/feed row repeating a job a company board already gave us.
+            if is_aggregator and _job_sig(company, j.get("title"), j.get("location")) in existing_sigs:
                 continue
             # An aggregator row (New-Grad Feed) names its own employer per
             # row, which can itself be a tracked robotics/IoT company even
@@ -2470,14 +3327,38 @@ def main(dry_run=False):
             # old, before spending a request on its description. See
             # MAX_POSTING_AGE_DAYS for exactly which sources this applies to.
             posted = _norm_date(j.get("posted"))
-            if is_stale(posted):
+            # Programs keep their original posted date for months while still
+            # open -- exempt from the freshness limit (see _is_program_title).
+            program = _is_program_title(j.get("title"))
+            if is_stale(posted) and not program:
                 continue
-            # A listing with no description can't be judged on experience, so
-            # go get one. Without this, description-less sources bypass the
-            # experience filter entirely (see _fetch_description).
-            if not (j.get("description") or "").strip():
-                j["description"] = _fetch_description(url)
-            if is_closed_posting(j["description"]):
+            # Only a posting whose description had to be DOWNLOADED is worth
+            # remembering as rejected -- that download is what the Seen list
+            # exists to avoid repeating. One that arrived with its text costs
+            # nothing to re-judge, so it isn't stored.
+            needed_fetch = not (j.get("description") or "").strip()
+            candidates.append((j, key, company, job_is_robotics, posted, program, needed_fetch))
+
+        # A listing with no description can't be judged on experience, so go
+        # get one (concurrently). Without this, description-less sources
+        # bypass the experience filter entirely (see _fetch_description).
+        _prefetch_descriptions([x[0] for x in candidates])
+
+        kept = 0
+        kept_v2 = 0
+        for j, key, company, job_is_robotics, posted, program, needed_fetch in candidates:
+            url = j["url"]
+            desc = j.get("description") or ""
+            # No description even after the fetch: don't judge it on nothing
+            # and don't remember it -- the next run tries again.
+            fetched = bool(desc.strip()) and needed_fetch
+            if is_closed_posting(desc):
+                if fetched:
+                    newly_rejected.add(key)
+                continue
+            if _extract_non_us_country(desc):
+                if fetched:
+                    newly_rejected.add(key)
                 continue
             # The source gave no "posted" date (Workday; also the New-Grad
             # Feed before its real page was fetched above) -- try the
@@ -2485,38 +3366,44 @@ def main(dry_run=False):
             # staleness with it. See _extract_json_ld_date and
             # MAX_POSTING_AGE_DAYS.
             if not posted:
-                extracted = _extract_json_ld_date(j["description"])
+                extracted = _extract_json_ld_date(desc)
                 if extracted:
                     posted = extracted
-                    if is_stale(posted):
+                    if is_stale(posted) and not program:
+                        if fetched:
+                            newly_rejected.add(key)
                         continue
             category = classify_job(j, is_robotics=job_is_robotics)
             if category is None:
+                if fetched:
+                    newly_rejected.add(key)
                 continue
             prio = "Yes" if is_priority_location(j.get("location")) else ""
-            # Aggregator sources name the real employer per row; single-company
-            # sources don't set this and fall back to the source name, which is
-            # the company anyway.
-            company = (j.get("company") or "").strip() or c["name"]
             row = [today, posted, prio, company, j["title"], j["location"], url, ""]
             # (early-career score, technical relevance) -- see
             # _write_new_rows for how each is used in the sort.
-            relevance = (early_career_score(j["title"], j.get("description")),
-                         technical_relevance_score(j.get("description")))
+            relevance = (early_career_score(j["title"], desc),
+                         technical_relevance_score(desc))
             if category == "core":
                 new_rows.append(row)
                 relevance_by_url[url] = relevance
-                existing_urls.add(url)
                 kept += 1
             else:
                 new_rows_v2.append(row)
                 relevance_by_url_v2[url] = relevance
-                existing_urls_v2.add(url)
                 kept_v2 += 1
+            existing_urls.add(url)
+            existing_keys.add(key)
+            existing_sigs.add(_job_sig(company, j["title"], j["location"]))
         print(f"{c['name']}: {kept} new match(es), {kept_v2} Jobs 2.0 match(es)")
 
     _write_new_rows(ws, new_rows, relevance_by_url, dry_run, "Jobs", "product")
     _write_new_rows(ws_v2, new_rows_v2, relevance_by_url_v2, dry_run, "Jobs 2.0", "Jobs 2.0")
+    if not dry_run and seen_ws is not None:
+        try:
+            _save_seen(seen_ws, seen_current, newly_rejected, seen_had_other)
+        except Exception as e:
+            print(f"[warn] could not save the Seen list: {e}")
 
     n_prio = sum(1 for r in new_rows if r[PRIORITY_IDX] == "Yes")
     n_prio_v2 = sum(1 for r in new_rows_v2 if r[PRIORITY_IDX] == "Yes")

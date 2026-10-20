@@ -7,6 +7,10 @@ __pycache__/
 # Credentials — never commit service-account keys or any JSON secrets
 *.json
 !.github/**/*.json
+# The scraper's source list: public board identifiers only (company names and
+# ATS slugs / Workday tenants), no credentials. Without this exception the blanket
+# *.json rule above silently drops it from commits.
+!sources_extra.json
 
 # Local env
 .env

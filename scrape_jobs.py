@@ -18,7 +18,6 @@ import os
 import re
 import ssl
 import html
-import urllib.parse
 import json
 import time
 import smtplib
@@ -1919,7 +1918,11 @@ def fetch_jobright(c):
             "title": m.group("title"),
             "location": m.group("loc"),
             "url": m.group("url"),
-            "posted": _jobright_posted(m.group("date")),
+            # Deliberately blank: jobright lists a role when IT finds it, which can
+            # be days after the employer posted it. A real date comes from the
+            # employer's own posting when main() can match one (see
+            # _resolve_direct_link); otherwise the date is left unknown.
+            "posted": "",
             "description": "",
             "company": company,
         })
@@ -2425,7 +2428,7 @@ def _slug_guesses(company):
 
 
 def _board_jobs(ats, slug):
-    """[(title, location, url)] for one board, or [] when it doesn't exist.
+    """[(title, location, url, posted)] for one board, or [] when it doesn't exist.
     Probes with a single quick request first so a wrong guess costs ~1s
     rather than the full retry/backoff of the regular fetchers."""
     probe = _QUICK_PROBES.get(ats)
@@ -2439,7 +2442,8 @@ def _board_jobs(ats, slug):
         jobs = FETCHERS[ats]({"name": slug, "ats": ats, "slug": slug})
     except Exception:
         return []
-    return [(j.get("title", ""), j.get("location", ""), j.get("url", "")) for j in jobs if j.get("url")]
+    return [(j.get("title", ""), j.get("location", ""), j.get("url", ""), j.get("posted", ""))
+            for j in jobs if j.get("url")]
 
 
 def _company_board_jobs(company, company_url=""):
@@ -2482,25 +2486,27 @@ def _same_company(a, b):
 
 
 def _resolve_direct_link(company, title, location, company_url="", title_index=None):
-    """The employer's own posting URL for a jobright row, or "" if none found.
+    """(url, posted) of the employer's own posting for a jobright row, or
+    ("", "") if none found. The posted date is the employer's, not jobright's.
 
     First looks among every posting this run already read from company boards
-    (title_index: title -> [(company, location, url)]), then at the employer's
-    own board if it is on a platform we can find."""
+    (title_index: title -> [(company, location, url, posted)]), then at the
+    employer's own board if it is on a platform we can find."""
     want = _title_key(title)
     if not want:
-        return ""
+        return "", ""
     loc_words = set(re.findall(r"[a-z]{3,}", (location or "").lower()))
 
     def best(cands):
-        return max(cands, key=lambda j: len(loc_words & set(re.findall(r"[a-z]{3,}", (j[1] or "").lower()))))[2]
+        j = max(cands, key=lambda j: len(loc_words & set(re.findall(r"[a-z]{3,}", (j[1] or "").lower()))))
+        return j[2], j[3]
 
     nc = _norm_company(company)
-    hits = [(c, loc, u) for c, loc, u in (title_index or {}).get(want, []) if _same_company(nc, c)]
+    hits = [x for x in (title_index or {}).get(want, []) if _same_company(nc, x[0])]
     if hits:
-        return best(hits)
+        return best([(h[0], h[1], h[2], h[3]) for h in hits])
     exact = [j for j in _company_board_jobs(company, company_url) if _title_key(j[0]) == want]
-    return best(exact) if exact else ""
+    return best(exact) if exact else ("", "")
 
 
 FETCHERS = {
@@ -3721,8 +3727,6 @@ def _url_key(url):
     if m:
         return "gh:" + m.group(1)
     host, _, rest = u.partition("/")
-    if host.endswith("google.com") and rest.startswith("search"):
-        return u  # a search link IS its query; the generic rule would drop it
     path = rest.split("?")[0].rstrip("/")
     if host.endswith("greenhouse.io"):
         m = re.search(r"jobs/(\d+)", path)
@@ -3923,7 +3927,8 @@ def main(dry_run=False):
             for j in jobs:
                 if j.get("url"):
                     title_index.setdefault(_title_key(j.get("title")), []).append(
-                        (_norm_company(j.get("company") or c["name"]), j.get("location") or "", j["url"]))
+                        (_norm_company(j.get("company") or c["name"]), j.get("location") or "", j["url"],
+                         j.get("posted") or ""))
 
         # ---- cheap gates: title, location, freshness, already-known ----
         candidates = []
@@ -4005,25 +4010,28 @@ def main(dry_run=False):
                     newly_rejected.add(key)
                 continue
             if _JOBRIGHT_URL_RE.search(url):
-                # Never show a jobright link: swap in the employer's own.
-                direct = _resolve_direct_link(company, j["title"], j["location"],
-                                              _JOBRIGHT_COMPANY_URL.get(url, ""), title_index)
+                # Prefer the employer's own posting, and with it the employer's
+                # real posted date -- jobright's listing time is when jobright
+                # found the role, which can be well after the employer did.
+                direct, real_posted = _resolve_direct_link(
+                    company, j["title"], j["location"],
+                    _JOBRIGHT_COMPANY_URL.get(url, ""), title_index)
                 if fetched:
                     newly_rejected.add(key)   # the jobright page itself is done either way
-                if not direct:
-                    # No readable employer board (TikTok, IBM, banks, ... run
-                    # their own systems). A search for this exact role at this
-                    # employer is the closest honest link; it is never a
-                    # jobright page.
+                if direct:
+                    url = direct
+                    key = _url_key(url)
+                    # The employer's own copy may already be in the sheet, or have
+                    # been judged and rejected on its real description.
+                    if url in existing_urls or key in existing_keys or key in seen_rejected or key in newly_rejected:
+                        continue
+                    real_posted = _norm_date(real_posted)
+                    if real_posted:
+                        posted = real_posted
+                        if is_stale(posted) and not program:
+                            continue
+                else:
                     unresolved_jobright.append((company, j["title"]))
-                    direct = ("https://www.google.com/search?q=" + urllib.parse.quote_plus(
-                        f'"{j["title"]}" {company} {j["location"]} careers apply'))
-                url = direct
-                key = _url_key(url)
-                # The employer's own copy may already be in the sheet, or have been
-                # judged and rejected on its real description.
-                if url in existing_urls or key in existing_keys or key in seen_rejected or key in newly_rejected:
-                    continue
             prio = "Yes" if is_priority_location(j.get("location")) else ""
             row = [today, posted, prio, company, j["title"], j["location"], url, ""]
             # (early-career score, technical relevance) -- see
@@ -4058,7 +4066,8 @@ def main(dry_run=False):
           f"{len(new_rows_v2)} new job(s) ({n_prio_v2} priority) to Jobs 2.0.")
     if unresolved_jobright:
         print(f"\n[info] {len(unresolved_jobright)} jobright role(s) passed the filters but the "
-              f"employer's own posting couldn't be found; they were added with a search link instead:")
+              f"employer's own posting couldn't be found; they were added with the jobright link "
+              f"and no posted date:")
         for co, t in unresolved_jobright[:40]:
             print(f"    - {co}: {t}")
     # A source that dies is caught above so one bad endpoint can't sink the

@@ -426,10 +426,9 @@
   "robotics": true
  },
  {
-  "name": "Continental",
+  "name": "Continental (Tires)",
   "ats": "smartrecruiters",
-  "slug": "Continental",
-  "robotics": true
+  "slug": "Continental"
  },
  {
   "name": "Arista Networks",
@@ -9714,5 +9713,211 @@
   "wd_host": "wd5",
   "site": "External",
   "wd_domain": "myworkdaysite"
+ },
+ {
+  "name": "Mitsubishi Motors North America",
+  "ats": "greenhouse",
+  "slug": "mitsubishimotorsna",
+  "robotics": true
+ },
+ {
+  "name": "Mazda North American Operations",
+  "ats": "workday",
+  "tenant": "mazdausa",
+  "wd_host": "wd5",
+  "site": "Mazda",
+  "robotics": true
+ },
+ {
+  "name": "Valeo",
+  "ats": "workday",
+  "tenant": "valeo",
+  "wd_host": "wd3",
+  "site": "valeo_jobs",
+  "robotics": true
+ },
+ {
+  "name": "Adient",
+  "ats": "workday",
+  "tenant": "adient",
+  "wd_host": "wd3",
+  "site": "External",
+  "robotics": true
+ },
+ {
+  "name": "Aumovio (Continental Automotive)",
+  "ats": "smartrecruiters",
+  "slug": "Aumovio",
+  "robotics": true
+ },
+ {
+  "name": "Gatik",
+  "ats": "greenhouse",
+  "slug": "gatikaiinc",
+  "robotics": true
+ },
+ {
+  "name": "Mercedes-Benz R&D North America",
+  "ats": "lever",
+  "slug": "MBRDNA",
+  "robotics": true
+ },
+ {
+  "name": "MicroVision (Luminar lidar)",
+  "ats": "lever",
+  "slug": "microvision",
+  "robotics": true
+ },
+ {
+  "name": "Rivian",
+  "ats": "jibe",
+  "host": "careers.rivian.com",
+  "job_path": "/careers-home/jobs",
+  "robotics": true
+ },
+ {
+  "name": "AMD",
+  "ats": "jibe",
+  "host": "careers.amd.com",
+  "robotics": true
+ },
+ {
+  "name": "Garmin",
+  "ats": "jibe",
+  "host": "careers.garmin.com",
+  "robotics": true
+ },
+ {
+  "name": "Navistar / International Motors",
+  "ats": "jibe",
+  "host": "careers.navistar.com",
+  "robotics": true
+ },
+ {
+  "name": "Qualcomm",
+  "ats": "eightfold",
+  "host": "qualcomm.eightfold.ai",
+  "domain": "qualcomm.com",
+  "job_host": "careers.qualcomm.com",
+  "robotics": true
+ },
+ {
+  "name": "John Deere",
+  "ats": "eightfold",
+  "host": "johndeere.eightfold.ai",
+  "domain": "johndeere.com",
+  "job_host": "careers.deere.com",
+  "robotics": true
+ },
+ {
+  "name": "Hyundai Motor Group (US)",
+  "ats": "sfcsb",
+  "base": "https://careers-americas.hyundai.com",
+  "robotics": true
+ },
+ {
+  "name": "Kia America",
+  "ats": "sfcsb",
+  "base": "https://careers-americas.kia.com",
+  "robotics": true
+ },
+ {
+  "name": "PACCAR",
+  "ats": "sfcsb",
+  "base": "https://jobs.paccar.com",
+  "robotics": true
+ },
+ {
+  "name": "Harley-Davidson",
+  "ats": "sfcsb",
+  "base": "https://jobs.harley-davidson.com",
+  "robotics": true
+ },
+ {
+  "name": "Volkswagen Group of America",
+  "ats": "sfcsb",
+  "base": "https://jobs.volkswagen-group.com",
+  "robotics": true
+ },
+ {
+  "name": "Volvo Cars USA",
+  "ats": "sfcsb",
+  "base": "https://jobs.volvocars.com",
+  "robotics": true
+ },
+ {
+  "name": "Volvo Group North America",
+  "ats": "sfcsb",
+  "base": "https://jobs.volvogroup.com",
+  "robotics": true
+ },
+ {
+  "name": "ZF Group",
+  "ats": "sfcsb",
+  "base": "https://jobs.zf.com",
+  "locationsearch": "US",
+  "robotics": true
+ },
+ {
+  "name": "Lear Corporation",
+  "ats": "sfcsb",
+  "base": "https://jobs.lear.com",
+  "locationsearch": "US",
+  "robotics": true
+ },
+ {
+  "name": "Dana Incorporated",
+  "ats": "sfcsb",
+  "base": "https://jobs.dana.com",
+  "locationsearch": "US",
+  "robotics": true
+ },
+ {
+  "name": "Tenneco",
+  "ats": "sfcsb",
+  "base": "https://jobs.tenneco.com",
+  "locationsearch": "US",
+  "robotics": true
+ },
+ {
+  "name": "Gentherm",
+  "ats": "sfcsb",
+  "base": "https://careers.gentherm.com",
+  "locationsearch": "US",
+  "robotics": true
+ },
+ {
+  "name": "Honda (American Honda, HDMA and affiliates)",
+  "ats": "phenom",
+  "base": "https://careers.honda.com",
+  "robotics": true
+ },
+ {
+  "name": "Stellantis / FCA US",
+  "ats": "mcloud",
+  "site": "https://careers.stellantis.com",
+  "robotics": true
+ },
+ {
+  "name": "Mercedes-Benz (USA, MBUSI, Vans)",
+  "ats": "mercedes",
+  "robotics": true
+ },
+ {
+  "name": "Porsche Cars North America",
+  "ats": "porsche",
+  "robotics": true
+ },
+ {
+  "name": "Joby Aviation",
+  "ats": "icims",
+  "host": "careers-jobyaviation.icims.com",
+  "robotics": true
+ },
+ {
+  "name": "Ouster",
+  "ats": "jazzhr",
+  "host": "ouster.applytojob.com",
+  "robotics": true
  }
 ]

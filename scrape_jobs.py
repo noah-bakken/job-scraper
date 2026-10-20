@@ -18,6 +18,7 @@ import os
 import re
 import ssl
 import html
+import urllib.parse
 import json
 import time
 import smtplib
@@ -360,6 +361,18 @@ COMPANIES += _load_extra_sources()
 # Feed row that happens to name one of these companies as the employer.
 ROBOTICS_COMPANY_NAMES = {c["name"] for c in COMPANIES if c.get("robotics")}
 
+# Eightfold sites: the public careers host -> (API host, employer domain), so a
+# posting URL alone is enough to fetch its description later.
+_EIGHTFOLD_SITES = {}
+_SF_HOSTS, _JAZZ_HOSTS = set(), set()
+for _c in COMPANIES:
+    if _c["ats"] == "sfcsb":
+        _SF_HOSTS.add(re.match(r"https?://([^/]+)", _c["base"]).group(1))
+    elif _c["ats"] == "jazzhr":
+        _JAZZ_HOSTS.add(_c["host"])
+    elif _c["ats"] == "eightfold":
+        _EIGHTFOLD_SITES[_c.get("job_host", _c["host"])] = (_c["host"], _c["domain"])
+
 # A title must contain one of these (case-insensitive) to be a match.
 TITLE_INCLUDE = [
     "product manager",
@@ -606,8 +619,10 @@ _ROBOTICS_ANY_ROLE_EXCLUDE_TITLE_RE = re.compile(
     # Added after the exception was extended to large industrial employers
     # (Avis, Caterpillar, Magna, GE, Cummins) and let through: summer interns
     # marked "Returning Students", GM's PhD-style "Researcher" roles, and
-    # hourly plant/rental work.
-    r"interns?|internships?|co-?ops?|apprentice\w*|trainee|researcher|operator|"
+    # hourly plant/rental work. Interns/co-ops are NOT excluded here: roles
+    # that don't require being in college are wanted, and the ones that do are
+    # caught by the enrollment phrases in DESCRIPTION_EXCLUDE.
+    r"apprentice\w*|trainee|researcher|operator|"
     r"driver|handler|inspector|detailer|cleaner|attendant|cashier|clerk|"
     # Seen in the second full-scale run: construction "Laborer", sanitation,
     # field installers, architect/developer (engineering by another name),
@@ -696,6 +711,8 @@ DESCRIPTION_EXCLUDE = [
     "enrolled throughout",
     "enrolled for the duration",
     "enrolled in a degree",
+    "returning to school",
+    "returning student",
     "returning to school",
     "returning to campus",
     "return to campus",
@@ -1919,7 +1936,9 @@ def _fetch_jobright_description(url):
     r = requests.get(url, timeout=25, headers=REQ_HEADERS)
     r.raise_for_status()
     m = _NEXT_DATA_RE.search(r.text)
-    job = json.loads(m.group(1))["props"]["pageProps"]["dataSource"]["jobResult"]
+    data = json.loads(m.group(1))["props"]["pageProps"]["dataSource"]
+    job = data["jobResult"]
+    _JOBRIGHT_COMPANY_URL[url] = ((data.get("companyResult") or {}).get("companyURL") or "")
     qual = job.get("qualifications") or {}
     seniority = job.get("jobSeniority") or ""
     return _join(
@@ -1929,6 +1948,559 @@ def _fetch_jobright_description(url):
         "Qualifications: " + " ".join(qual.get("mustHave") or []),
         "Preferred: " + " ".join(qual.get("preferredHave") or []),
     )
+
+
+# ---------------------------------------------------------------------------
+# Automaker / mobility careers systems. Each was checked live against the real
+# company site (Honda, Hyundai, Kia, Stellantis, Mercedes-Benz, Porsche, PACCAR,
+# Harley, VW, Volvo, Rivian, AMD, Garmin, Qualcomm, Deere, Joby, Ouster). All are
+# public with an ordinary User-Agent; none needs a cookie or a browser.
+# ---------------------------------------------------------------------------
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+_US_LOC_RE = re.compile(r",\s*(?:US|USA|United States)\b|\bUnited States\b", re.I)
+
+
+def fetch_jibe(c):
+    """Jibe (iCIMS) career sites -- AMD, Garmin, Navistar, Rivian
+    (c["host"]). One JSON call per page carries the full description,
+    qualifications and responsibilities, so no per-posting request is needed."""
+    host = c["host"]
+    path = c.get("job_path", "/jobs")
+    out, page, got = [], 1, 0
+    while True:
+        r = _request_retry("GET", f"https://{host}/api/jobs", tries=3, timeout=40,
+                           params={"page": page, "limit": 100, "country": "United States"},
+                           headers=REQ_HEADERS)
+        d = r.json()
+        jobs = d.get("jobs") or []
+        if not jobs:
+            break
+        got += len(jobs)
+        for j in jobs:
+            x = j.get("data") or {}
+            if x.get("country_code") and x["country_code"] != "US":
+                continue
+            out.append({
+                "title": x.get("title", ""),
+                "location": x.get("full_location") or "",
+                "url": f"https://{host}{path}/{x.get('slug') or x.get('req_id')}?lang=en-us",
+                "posted": x.get("posted_date", ""),
+                "description": _join(_strip_html(x.get("description", "")),
+                                     _strip_html(x.get("responsibilities", "")),
+                                     _strip_html(x.get("qualifications", ""))),
+            })
+        page += 1
+        if got >= (d.get("totalCount") or 0) or page > 30:
+            break
+    return out
+
+
+
+
+def fetch_eightfold(c):
+    """Eightfold "PCSX" career sites -- Qualcomm, Deere (c["host"] is the
+    tenant's eightfold.ai host, c["domain"] the employer domain, c["job_host"]
+    the public careers host). Page size is fixed at 10; the description comes
+    from the position_details call in _fetch_description."""
+    host, domain = c["host"], c["domain"]
+    job_host = c.get("job_host", host)
+    out, start = [], 0
+    while True:
+        r = _request_retry("GET", f"https://{host}/api/pcsx/search", tries=3, timeout=40,
+                           params={"domain": domain, "query": "", "location": "United States",
+                                   "start": start, "sort_by": "timestamp"},
+                           headers=REQ_HEADERS)
+        d = (r.json().get("data") or {})
+        pos = d.get("positions") or []
+        if not pos:
+            break
+        for p in pos:
+            locs = p.get("standardizedLocations") or p.get("locations") or []
+            loc = "; ".join(locs)
+            if locs and not any(re.search(r"(?:,|\b)\s*US\b|United States", l) for l in locs):
+                continue
+            out.append({
+                "title": p.get("name", ""),
+                "location": loc,
+                "url": f"https://{job_host}/careers/job/{p['id']}",
+                "posted": p.get("postedTs") or "",
+                "description": "",
+            })
+        start += len(pos)
+        if start >= (d.get("count") or 0) or start >= 1500:
+            break
+    return out
+
+
+_EIGHTFOLD_URL_RE = re.compile(r"https?://([^/]+)/careers/job/(\d+)")
+
+
+def _fetch_eightfold_description(host, position_id):
+    api_host, domain = _EIGHTFOLD_SITES[host]
+    r = requests.get(f"https://{api_host}/api/pcsx/position_details",
+                     params={"position_id": position_id, "domain": domain, "hl": "en"},
+                     timeout=30, headers=REQ_HEADERS)
+    r.raise_for_status()
+    return _strip_html((r.json().get("data") or {}).get("jobDescription", ""))
+
+
+_SF_ROW_RE = re.compile(r'<tr class="data-row">(.*?)</tr>', re.S)
+_SF_TITLE_RE = re.compile(r'<a href="([^"]+)" class="jobTitle-link">(.*?)</a>', re.S)
+_SF_LOC_RE = re.compile(r'<span class="jobLocation">\s*(.*?)\s*</span>', re.S)
+_SF_DATE_RE = re.compile(r'<span class="jobDate">\s*(.*?)\s*</span>', re.S)
+_SF_TOTAL_RES = (re.compile(r"of\s*<b>(\d+)"), re.compile(r"Results\s+\d+\s+to\s+\d+\s+of\s+(\d+)"))
+
+
+def fetch_sfcsb(c):
+    """SAP SuccessFactors "career site builder" pages -- Hyundai, Kia, PACCAR,
+    Harley-Davidson, VW Group, Volvo (c["base"]). Server-rendered HTML with no
+    JSON API; the root path lists every sub-site of a group at once. US rows
+    only (the location cell reads "City, ST, US, zip"). The posting page holds
+    the full text, which _fetch_description reads."""
+    base = c["base"].rstrip("/")
+    origin = re.match(r"https?://[^/]+", base).group(0)
+    out, start, total = [], 0, None
+    while True:
+        r = _request_retry("GET", f"{base}/search/", tries=3, timeout=40,
+                           params={"q": "", "startrow": start, "sortColumn": "referencedate",
+                                   "sortDirection": "desc",
+                                   **({"locationsearch": c["locationsearch"]} if c.get("locationsearch") else {})},
+                           headers=BROWSER_HEADERS)
+        t = r.text
+        if total is None:
+            for rx in _SF_TOTAL_RES:
+                m = rx.search(t)
+                if m:
+                    total = int(m.group(1))
+                    break
+            total = total or 0
+        rows = _SF_ROW_RE.findall(t)
+        if not rows:
+            break
+        for row in rows:
+            m = _SF_TITLE_RE.search(row)
+            if not m:
+                continue
+            loc = _SF_LOC_RE.search(row)
+            loc = " ".join(html.unescape(loc.group(1)).split()) if loc else ""
+            if not re.search(r",\s*US\b", loc):
+                continue
+            dt = _SF_DATE_RE.search(row)
+            out.append({
+                "title": _strip_html(m.group(2)),
+                "location": loc,
+                "url": origin + html.unescape(m.group(1)),
+                "posted": dt.group(1).strip() if dt else "",
+                "description": "",
+            })
+        start += len(rows)
+        if start >= total or start >= 1500:
+            break
+    return out
+
+
+def fetch_phenom(c):
+    """Phenom People career sites -- Honda (c["base"]). A POST to /widgets
+    returns the search page as JSON; US-only because the request is scoped to
+    the US site. The description comes from the job-detail widget, which also
+    carries the posting's stated years of experience."""
+    base = c["base"].rstrip("/")
+    out, frm, size = [], 0, 50
+    while True:
+        body = {"lang": "en_us", "deviceType": "desktop", "country": "us",
+                "pageName": "search-results", "ddoKey": "refineSearch", "sortBy": "",
+                "subsearch": "", "from": frm, "jobs": True, "counts": True,
+                "all_fields": ["category", "country", "state", "city", "type"],
+                "size": size, "clearAll": False, "jdsource": "facets",
+                "isSliderEnable": False, "pageId": "page4", "siteType": "external",
+                "keywords": "", "global": True, "selected_fields": {},
+                "sort": {"order": "desc", "field": "postedDate"}, "locationData": {}}
+        d = (_post_json_retry(f"{base}/widgets", body, {**BROWSER_HEADERS, "Content-Type": "application/json"})
+             .get("refineSearch") or {})
+        jobs = (d.get("data") or {}).get("jobs") or []
+        if not jobs:
+            break
+        for j in jobs:
+            slug = re.sub(r"[^A-Za-z0-9]+", "-", j.get("title", "")).strip("-")
+            out.append({
+                "title": j.get("title", ""),
+                "location": j.get("location") or j.get("locationName") or "",
+                "url": f"{base}/us/en/job/{j['jobSeqNo']}/{slug}",
+                "posted": j.get("postedDate", ""),
+                "description": "",
+            })
+        frm += len(jobs)
+        if frm >= (d.get("totalHits") or 0):
+            break
+    return out
+
+
+_PHENOM_URL_RE = re.compile(r"(https://careers\.honda\.com)/us/en/job/([A-Za-z0-9_-]+)/")
+
+
+def _fetch_phenom_description(base, job_id):
+    body = {"lang": "en_us", "deviceType": "desktop", "country": "us", "pageName": "job-detail",
+            "ddoKey": "jobDetail", "jobId": job_id, "pageId": "page11", "siteType": "external",
+            "global": True}
+    r = _post_json_retry(f"{base}/widgets", body, {**BROWSER_HEADERS, "Content-Type": "application/json"})
+    job = ((r.get("jobDetail") or {}).get("data") or {}).get("job") or {}
+    yrs = job.get("yearsExpReqd")
+    return _join(_strip_html(job.get("description", "")),
+                 ("Experience required: " + yrs + ".") if yrs else "")
+
+
+STELLANTIS_ORG = "companies/16115603-6c1b-4c45-b544-238a4e6c51b3"
+
+
+def fetch_mcloud(c):
+    """m-cloud Google-Jobs API behind careers.stellantis.com (FCA US, Chrysler,
+    Jeep, Dodge, Ram). Needs the careers site as Origin/Referer. The response
+    holds the full text, so there is no detail call."""
+    site = c["site"]
+    h = {**BROWSER_HEADERS, "Origin": site, "Referer": site + "/"}
+    out, off = [], 0
+    while True:
+        r = _request_retry("GET", "https://jobsapi-google.m-cloud.io/api/job/search", tries=3,
+                           timeout=40, headers=h,
+                           params={"companyName": c.get("org", STELLANTIS_ORG), "pageSize": 100,
+                                   "offset": off, "sortfield": "open_date",
+                                   "locationFilter": json.dumps({"address": "United States"})})
+        d = r.json()
+        rs = [s["job"] for s in d.get("searchResults") or []]
+        if not rs:
+            break
+        for j in rs:
+            if j.get("primary_country") and j["primary_country"] != "US":
+                continue
+            out.append({
+                "title": j.get("title", ""),
+                "location": ", ".join(x for x in (j.get("primary_city"), j.get("primary_state")) if x),
+                "url": j.get("url", ""),
+                "posted": j.get("open_date", ""),
+                "description": _join(_strip_html(j.get("description", "")),
+                                     _strip_html(j.get("education", ""))),
+            })
+        off += len(rs)
+        if off >= (d.get("totalHits") or 0):
+            break
+    return out
+
+
+def fetch_mercedes(c):
+    """Mercedes-Benz's BeeSite search API (MBUSA, MBUSI, Vans, Financial
+    Services). Each requisition is listed once per publication, so it is
+    de-duplicated on PositionID. Descriptions are inline."""
+    api = "https://jobs.api.mercedes-benz.com/search"
+    h = {**BROWSER_HEADERS, "Content-Type": "application/json",
+         "Origin": "https://jobs.mercedes-benz.com", "Referer": "https://jobs.mercedes-benz.com/"}
+    seen, first = {}, 1
+    while True:
+        body = {"LanguageCode": "EN",
+                "SearchParameters": {"FirstItem": first, "CountItem": 100,
+                                     "Sort": [{"Criterion": "PublicationStartDate", "Direction": "DESC"}]},
+                "SearchCriteria": [{"CriterionName": "PositionLocation.Country", "CriterionValue": ["475"]}]}
+        sr = _post_json_retry(api, body, h).get("SearchResult") or {}
+        for i in sr.get("SearchResultItems") or []:
+            d = i["MatchedObjectDescriptor"]
+            seen.setdefault(d["PositionID"], d)
+        first += 100
+        if first > (sr.get("SearchResultCountAll") or 0):
+            break
+    out = []
+    for d in seen.values():
+        loc = (d.get("PositionLocation") or [{}])[0]
+        desc = ""
+        for blk in d.get("PositionFormattedDescription") or []:
+            desc = _join(desc, _strip_html(blk.get("Tasks", "")), _strip_html(blk.get("Qualifications", "")))
+        groups = ", ".join(g.get("Name", "") for g in d.get("TargetGroup") or [])
+        out.append({
+            "title": d.get("PositionTitle", ""),
+            "location": loc.get("CityName", ""),
+            "url": d.get("PositionURI", ""),
+            "posted": d.get("PublicationStartDate", ""),
+            "description": _join(desc, ("Target group: " + groups + ".") if groups else ""),
+        })
+    return out
+
+
+PORSCHE_API = "https://porsche-beesite-production-gjb.app.beesite.de/search/"
+
+
+def fetch_porsche(c):
+    """Porsche's BeeSite search API (Porsche Cars North America and affiliates).
+    The list carries no description; the posting page does (server-rendered)."""
+    out, first = [], 1
+    while True:
+        data = {"LanguageCode": "EN",
+                "SearchParameters": {"FirstItem": first, "CountItem": 100,
+                                     "Sort": [{"Criterion": "PublicationStartDate", "Direction": "DESC"}]},
+                "SearchCriteria": [{"CriterionName": "PublicationChannel.Code", "CriterionValue": ["12"]},
+                                   {"CriterionName": "PositionLocation.Country", "CriterionValue": ["231"]}]}
+        r = _request_retry("GET", PORSCHE_API, tries=3, timeout=40,
+                           params={"data": json.dumps(data)}, headers=REQ_HEADERS)
+        sr = r.json().get("SearchResult") or {}
+        items = sr.get("SearchResultItems") or []
+        if not items:
+            break
+        for i in items:
+            d = i["MatchedObjectDescriptor"]
+            loc = (d.get("PositionLocation") or [{}])[0]
+            out.append({
+                "title": d.get("PositionTitle", ""),
+                "location": loc.get("CityName", ""),
+                "url": d.get("PositionURI", ""),
+                "posted": d.get("PublicationStartDate", ""),
+                "description": "",
+            })
+        first += 100
+        if first > (sr.get("SearchResultCountAll") or 0):
+            break
+    return [j for j in out if not j["title"].lower().startswith("test ")
+            and not j["title"].lower().startswith("test-")]
+
+
+_ICIMS_LIST_RE = re.compile(r'href="(https://[^"]*/jobs/(\d+)/[^"/]*/job)[^"]*"')
+
+
+def fetch_icims(c):
+    """iCIMS career portals (c["host"]) -- Joby. The search page is HTML; each
+    posting's JSON-LD block holds its title, location and full description, so
+    every posting is read here (a few hundred small requests, in parallel).
+    iCIMS gives no usable posted date, so it is left blank."""
+    host = c["host"]
+    urls, seen, pr = [], set(), 0
+    while pr < 40:
+        r = _request_retry("GET", f"https://{host}/jobs/search", tries=3, timeout=40,
+                           params={"ss": 1, "in_iframe": 1, "pr": pr}, headers=BROWSER_HEADERS)
+        new = [(u, i) for u, i in _ICIMS_LIST_RE.findall(r.text) if i not in seen]
+        if not new:
+            break
+        for u, i in new:
+            seen.add(i)
+            urls.append(u)
+        m = re.search(r"Page \d+ of (\d+)", r.text)
+        pr += 1
+        if m and pr >= int(m.group(1)):
+            break
+
+    def one(u):
+        try:
+            title, location, desc = _fetch_icims_posting(u)
+        except Exception:
+            return None
+        return {"title": title, "location": location, "url": u, "posted": "", "description": desc}
+
+    import concurrent.futures as cf
+    with cf.ThreadPoolExecutor(max_workers=8) as ex:
+        return [j for j in ex.map(one, urls) if j and j["title"]]
+
+
+_ICIMS_URL_RE = re.compile(r"https://([a-z0-9.-]+\.icims\.com)/jobs/(\d+)/")
+
+
+def _fetch_icims_posting(url):
+    """(title, location, description) from an iCIMS posting's JSON-LD block."""
+    r = requests.get(url, params={"in_iframe": 1}, timeout=30, headers=BROWSER_HEADERS)
+    r.raise_for_status()
+    m = re.search(r'<script type="application/ld\+json">(.*?)</script>', r.text, re.S)
+    if not m:
+        return "", "", _strip_html(r.text)
+    d = json.loads(m.group(1))
+    loc = d.get("jobLocation")
+    loc = (loc[0] if isinstance(loc, list) and loc else loc) or {}
+    a = (loc.get("address") or {}) if isinstance(loc, dict) else {}
+    location = ", ".join(x for x in (a.get("addressLocality"), a.get("addressRegion"),
+                                     a.get("addressCountry")) if x)
+    return d.get("title", ""), location, _strip_html(d.get("description", ""))
+
+
+def _fetch_icims_description(url):
+    return _fetch_icims_posting(url)[2]
+
+
+def fetch_jazzhr(c):
+    """JazzHR boards (c["host"], e.g. ouster.applytojob.com) -- one HTML page
+    listing every opening; the posting page carries the JSON-LD text/date."""
+    host = c["host"]
+    r = _request_retry("GET", f"https://{host}/apply", tries=3, timeout=40, headers=BROWSER_HEADERS)
+    out = []
+    for it in re.findall(r'<li class="list-group-item">(.*?)</li>', r.text, re.S):
+        m = re.search(rf'href="(https://{re.escape(host)}/apply/[A-Za-z0-9]+/[^"]*)"[^>]*>\s*([^<]+?)\s*</a>', it)
+        if not m:
+            continue
+        loc = re.search(r"fa-map-marker['\"]></i>\s*([^<]*)", it)
+        out.append({"title": html.unescape(m.group(2)), "url": m.group(1),
+                    "location": (loc.group(1).strip() if loc else ""),
+                    "posted": "", "description": ""})
+    return out
+
+
+
+def _fetch_sf_description(url):
+    """Description of a SuccessFactors posting: only the job-description span
+    (the full page is 100-300 KB of script and navigation, which would feed
+    stray numbers to the experience filters), plus its posted date written the
+    way _extract_json_ld_date reads it."""
+    r = requests.get(url, timeout=30, headers=BROWSER_HEADERS)
+    r.raise_for_status()
+    t = r.text
+    i = t.find('class="jobdescription"')
+    if i < 0:
+        return ""
+    seg = t[i:]
+    end = seg.find("<script")
+    desc = _strip_html(re.sub(r"<style.*?</style>", " ", seg[:end] if end > 0 else seg[:60000], flags=re.S))
+    m = re.search(r'itemprop="datePosted"[^>]*content="([^"]+)"', t)
+    iso = ""
+    if m:
+        try:
+            iso = datetime.datetime.strptime(
+                re.sub(r"\s+[A-Z]{3,4}\s+(?=\d{4})", " ", m.group(1)), "%a %b %d %H:%M:%S %Y").date().isoformat()
+        except ValueError:
+            iso = ""
+    return _join(desc, f'"datePosted": "{iso}"' if iso else "")
+
+
+def _fetch_jazzhr_description(url):
+    r = requests.get(url, timeout=30, headers=BROWSER_HEADERS)
+    r.raise_for_status()
+    for blk in re.findall(r'<script type="application/ld\+json">(.*?)</script>', r.text, re.S):
+        try:
+            d = json.loads(blk)
+        except ValueError:
+            continue
+        if isinstance(d, dict) and d.get("@type") == "JobPosting":
+            return _join(_strip_html(d.get("description", "")),
+                         f'"datePosted": "{str(d["datePosted"])[:10]}"' if d.get("datePosted") else "")
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Real apply links for jobright rows.
+# ---------------------------------------------------------------------------
+# jobright only gives its own page for a role -- the employer link behind its
+# Apply button needs a logged-in jobright account (the endpoint answers "Cookie
+# not found"), so it can't be read. A row that passes every filter is therefore
+# matched to the employer's own job board instead: find the company's
+# Greenhouse / Lever / Ashby / Workable / SmartRecruiters board (guessed from its
+# name, or read off the company's own website) and take the posting with the same
+# title. Rows with no match are not written or emailed -- a jobright link is
+# never shown.
+_JOBRIGHT_COMPANY_URL = {}   # jobright page -> the employer's website
+_BOARD_CACHE = {}            # normalized company -> [(title, location, url)]
+_ATS_LINK_RES = (
+    ("greenhouse", re.compile(r"(?:boards|job-boards)(?:\.eu)?\.greenhouse\.io/(?:embed/job_board\?for=)?([A-Za-z0-9_-]+)")),
+    ("lever", re.compile(r"jobs\.lever\.co/([A-Za-z0-9_.-]+)")),
+    ("ashby", re.compile(r"jobs\.ashbyhq\.com/([A-Za-z0-9_.-]+)")),
+    ("workable", re.compile(r"apply\.workable\.com/([A-Za-z0-9_-]+)")),
+    ("smartrecruiters", re.compile(r"(?:jobs|careers)\.smartrecruiters\.com/([A-Za-z0-9_-]+)")),
+)
+_NOT_SLUGS = {"embed", "api", "v1", "j", "company", "jobs", "careers"}
+_QUICK_PROBES = {
+    "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{}/jobs",
+    "lever": "https://api.lever.co/v0/postings/{}?mode=json",
+    "ashby": "https://api.ashbyhq.com/posting-api/job-board/{}",
+}
+
+
+def _title_key(t):
+    return re.sub(r"[^a-z0-9]+", " ", (t or "").lower()).strip()
+
+
+def _slug_guesses(company):
+    n = re.sub(r"\(.*?\)", "", company or "").lower()
+    n = re.sub(r"[,.&'\u2019]", " ", n)
+    words = [w for w in n.split() if w not in
+             ("inc", "llc", "corp", "corporation", "co", "company", "ltd", "the", "group", "holdings")]
+    out = []
+    if words:
+        out += ["".join(words), "-".join(words), words[0]]
+        if len(words) > 1:
+            out.append("".join(words[:2]))
+    return list(dict.fromkeys(out))
+
+
+def _board_jobs(ats, slug):
+    """[(title, location, url)] for one board, or [] when it doesn't exist.
+    Probes with a single quick request first so a wrong guess costs ~1s
+    rather than the full retry/backoff of the regular fetchers."""
+    probe = _QUICK_PROBES.get(ats)
+    if probe:
+        try:
+            if requests.get(probe.format(slug), timeout=12, headers=REQ_HEADERS).status_code != 200:
+                return []
+        except requests.RequestException:
+            return []
+    try:
+        jobs = FETCHERS[ats]({"name": slug, "ats": ats, "slug": slug})
+    except Exception:
+        return []
+    return [(j.get("title", ""), j.get("location", ""), j.get("url", "")) for j in jobs if j.get("url")]
+
+
+def _company_board_jobs(company, company_url=""):
+    key = _norm_company(company)
+    if key in _BOARD_CACHE:
+        return _BOARD_CACHE[key]
+    found, tried = [], set()
+    for slug in _slug_guesses(company):
+        for ats in _QUICK_PROBES:
+            if (ats, slug) in tried:
+                continue
+            tried.add((ats, slug))
+            found += _board_jobs(ats, slug)
+        if found:
+            break
+    if not found and company_url:
+        # Read the employer's own site for a link to the board it really uses.
+        base = company_url.rstrip("/")
+        pages = []
+        for path in ("", "/careers", "/jobs", "/company/careers"):
+            try:
+                r = requests.get(base + path, timeout=12, headers=BROWSER_HEADERS)
+                if r.ok:
+                    pages.append(r.text)
+            except requests.RequestException:
+                continue
+        for ats, rx in _ATS_LINK_RES:
+            for text in pages:
+                for slug in dict.fromkeys(rx.findall(text)):
+                    if slug.lower() in _NOT_SLUGS or (ats, slug) in tried:
+                        continue
+                    tried.add((ats, slug))
+                    found += _board_jobs(ats, slug)
+    _BOARD_CACHE[key] = found
+    return found
+
+
+def _same_company(a, b):
+    return bool(a and b and (a == b or (min(len(a), len(b)) >= 5 and (a in b or b in a))))
+
+
+def _resolve_direct_link(company, title, location, company_url="", title_index=None):
+    """The employer's own posting URL for a jobright row, or "" if none found.
+
+    First looks among every posting this run already read from company boards
+    (title_index: title -> [(company, location, url)]), then at the employer's
+    own board if it is on a platform we can find."""
+    want = _title_key(title)
+    if not want:
+        return ""
+    loc_words = set(re.findall(r"[a-z]{3,}", (location or "").lower()))
+
+    def best(cands):
+        return max(cands, key=lambda j: len(loc_words & set(re.findall(r"[a-z]{3,}", (j[1] or "").lower()))))[2]
+
+    nc = _norm_company(company)
+    hits = [(c, loc, u) for c, loc, u in (title_index or {}).get(want, []) if _same_company(nc, c)]
+    if hits:
+        return best(hits)
+    exact = [j for j in _company_board_jobs(company, company_url) if _title_key(j[0]) == want]
+    return best(exact) if exact else ""
 
 
 FETCHERS = {
@@ -1945,6 +2517,15 @@ FETCHERS = {
     "workable": fetch_workable,
     "apmlist": fetch_apmlist,
     "jobright": fetch_jobright,
+    "jibe": fetch_jibe,
+    "eightfold": fetch_eightfold,
+    "sfcsb": fetch_sfcsb,
+    "phenom": fetch_phenom,
+    "mcloud": fetch_mcloud,
+    "mercedes": fetch_mercedes,
+    "porsche": fetch_porsche,
+    "icims": fetch_icims,
+    "jazzhr": fetch_jazzhr,
 }
 
 
@@ -2227,6 +2808,39 @@ def _fetch_description(url):
     if _JOBRIGHT_URL_RE.search(url):
         try:
             return _fetch_jobright_description(url)
+        except Exception:
+            pass
+    host = re.match(r"https?://([^/]+)", url)
+    host = host.group(1) if host else ""
+    if host in _SF_HOSTS and "/job/" in url:
+        try:
+            d = _fetch_sf_description(url)
+            if d:
+                return d
+        except Exception:
+            pass
+    if host in _JAZZ_HOSTS:
+        try:
+            d = _fetch_jazzhr_description(url)
+            if d:
+                return d
+        except Exception:
+            pass
+    m = _PHENOM_URL_RE.search(url)
+    if m:
+        try:
+            return _fetch_phenom_description(*m.groups())
+        except Exception:
+            pass
+    m = _EIGHTFOLD_URL_RE.search(url)
+    if m and m.group(1) in _EIGHTFOLD_SITES:
+        try:
+            return _fetch_eightfold_description(*m.groups())
+        except Exception:
+            pass
+    if _ICIMS_URL_RE.search(url):
+        try:
+            return _fetch_icims_description(url)
         except Exception:
             pass
     delays = (1, 2)
@@ -3107,6 +3721,8 @@ def _url_key(url):
     if m:
         return "gh:" + m.group(1)
     host, _, rest = u.partition("/")
+    if host.endswith("google.com") and rest.startswith("search"):
+        return u  # a search link IS its query; the generic rule would drop it
     path = rest.split("?")[0].rstrip("/")
     if host.endswith("greenhouse.io"):
         m = re.search(r"jobs/(\d+)", path)
@@ -3278,6 +3894,11 @@ def main(dry_run=False):
     relevance_by_url_v2 = {}
 
     failed = []
+    unresolved_jobright = []
+    # Every posting read from a company's own board this run, by title -- how a
+    # jobright row is matched to the employer's real link (see
+    # _resolve_direct_link). Aggregators are read last, so it is complete by then.
+    title_index = {}
     for c, jobs, err in _iter_sources():
         if err is not None:
             print(f"[warn] {c['name']} ({c['ats']}) failed: {err}")
@@ -3298,6 +3919,11 @@ def main(dry_run=False):
         # role" exception this feeds.
         is_robotics = bool(c.get("robotics"))
         is_aggregator = c["ats"] in AGGREGATOR_ATS
+        if not is_aggregator:
+            for j in jobs:
+                if j.get("url"):
+                    title_index.setdefault(_title_key(j.get("title")), []).append(
+                        (_norm_company(j.get("company") or c["name"]), j.get("location") or "", j["url"]))
 
         # ---- cheap gates: title, location, freshness, already-known ----
         candidates = []
@@ -3378,6 +4004,26 @@ def main(dry_run=False):
                 if fetched:
                     newly_rejected.add(key)
                 continue
+            if _JOBRIGHT_URL_RE.search(url):
+                # Never show a jobright link: swap in the employer's own.
+                direct = _resolve_direct_link(company, j["title"], j["location"],
+                                              _JOBRIGHT_COMPANY_URL.get(url, ""), title_index)
+                if fetched:
+                    newly_rejected.add(key)   # the jobright page itself is done either way
+                if not direct:
+                    # No readable employer board (TikTok, IBM, banks, ... run
+                    # their own systems). A search for this exact role at this
+                    # employer is the closest honest link; it is never a
+                    # jobright page.
+                    unresolved_jobright.append((company, j["title"]))
+                    direct = ("https://www.google.com/search?q=" + urllib.parse.quote_plus(
+                        f'"{j["title"]}" {company} {j["location"]} careers apply'))
+                url = direct
+                key = _url_key(url)
+                # The employer's own copy may already be in the sheet, or have been
+                # judged and rejected on its real description.
+                if url in existing_urls or key in existing_keys or key in seen_rejected or key in newly_rejected:
+                    continue
             prio = "Yes" if is_priority_location(j.get("location")) else ""
             row = [today, posted, prio, company, j["title"], j["location"], url, ""]
             # (early-career score, technical relevance) -- see
@@ -3410,6 +4056,11 @@ def main(dry_run=False):
     verb = "Would add" if dry_run else "Added"
     print(f"\nDone. {verb} {len(new_rows)} new job(s) ({n_prio} priority) to Jobs, "
           f"{len(new_rows_v2)} new job(s) ({n_prio_v2} priority) to Jobs 2.0.")
+    if unresolved_jobright:
+        print(f"\n[info] {len(unresolved_jobright)} jobright role(s) passed the filters but the "
+              f"employer's own posting couldn't be found; they were added with a search link instead:")
+        for co, t in unresolved_jobright[:40]:
+            print(f"    - {co}: {t}")
     # A source that dies is caught above so one bad endpoint can't sink the
     # run, but that also means coverage can quietly drop to zero for months.
     # Say so out loud: "0 new jobs" and "0 new jobs because 2 sources are

@@ -727,6 +727,16 @@ DESCRIPTION_EXCLUDE = [
     "graduating in 2028",
     "must be pursuing",
     "currently pursuing a degree",
+    "pursuing a degree",
+    "pursuing a bachelor",
+    "pursuing a master",
+    "pursuing an undergraduate",
+    "pursuing an advanced degree",
+    "you are a college student",
+    "college student graduating",
+    "m.arch",
+    "barch (professional)",
+    "domain expert",
     "currently pursuing a bachelor",
     "currently pursuing a master",
     # Security clearance requirement -- a hard disqualifier, not a
@@ -809,10 +819,10 @@ _ENROLLMENT_SOFT_PHRASES = frozenset({
 def _description_excluded(title, desc):
     """DESCRIPTION_EXCLUDE check, with the enrollment phrases waived for
     early-career programs (see _is_program_title)."""
-    program = _is_program_title(title)
+    # Programs are held to these like any other role: "currently enrolled" and
+    # "graduating Dec 2026 - Jun 2027" mean the cohort is a class you have
+    # already left (ID.me, CoStar, Amex, Databricks were all flagged for this).
     for p in DESCRIPTION_EXCLUDE:
-        if program and p in _ENROLLMENT_SOFT_PHRASES:
-            continue
         if p in desc:
             return True
     return False
@@ -840,7 +850,7 @@ MAX_YEARS_EXPERIENCE = 0
 # MAX_YEARS_EXPERIENCE=0 meant zero matches there. Raised specifically for
 # this category on request; product roles keep the stricter ceiling above.
 # See _years_ceiling_for().
-MAX_YEARS_EXPERIENCE_SUPPORT = 2
+MAX_YEARS_EXPERIENCE_SUPPORT = 1
 
 # When you graduated, as (year, month). Roles that target a LATER graduation
 # window aren't open to you: "you will graduate in Fall 2026 or Spring 2027"
@@ -883,14 +893,20 @@ GRADUATED = (2026, 5)
 # number, or set to None, if the sheet starts looking too thin.
 MAX_POSTING_AGE_DAYS = 14
 
-_SEASON_MONTH = {"winter": 1, "spring": 5, "summer": 7, "fall": 9, "autumn": 9}
+_SEASON_MONTH = {"winter": 1, "spring": 5, "summer": 7, "fall": 9, "autumn": 9,
+                 "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+                 "july": 7, "august": 8, "september": 9, "october": 10, "november": 11,
+                 "december": 12, "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7,
+                 "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12}
 # A year only counts as a graduation window if graduation-ish words sit near it,
 # so "founded in 2013" and "our 2026 roadmap" are ignored.
 _GRAD_CONTEXT = re.compile(
     r"\b(graduat\w*|pursu\w*|enroll\w*|degree|class of|commencement|"
     r"bachelor\w*|master\w*|undergrad\w*)\b", re.I)
 _GRAD_WINDOW = re.compile(
-    r"\b(?:(winter|spring|summer|fall|autumn)\s+)?((?:19|20)\d{2})\b", re.I)
+    r"\b(?:(winter|spring|summer|fall|autumn|january|february|march|april|may|june|july|"
+    r"august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)"
+    r"\.?\s+(?:of\s+|in\s+)?)?((?:19|20)\d{2})\b", re.I)
 
 # Spelled-out numbers seen in the wild ("at least three years").
 _WORD_NUMBERS = {
@@ -931,6 +947,8 @@ _YEARS_EXPLICIT = [
     # directly above this one only catches "N+/or more years", not
     # "N years or more/greater".
     re.compile(rf"\b{_NUM}\s*(?:years?|yrs?)\s*(?:or more|or greater)\b", re.I),
+    # "4+ of experience as a Product Owner" (no word "years" at all).
+    re.compile(rf"\b{_NUM}\s*\+\s*of\s+(?:\w+\s+){{0,2}}experience\b", re.I),
     # A range contributes its FLOOR, so "1-3 years" reads as 1 and survives.
     re.compile(rf"\b{_NUM}\s*(?:-|–|—|to)\s*\d{{1,2}}\s*(?:years?|yrs?)\b", re.I),
     # "WORD (DIGIT)" convention: a spelled-out number immediately re-stated
@@ -1076,6 +1094,13 @@ NON_US_TERMS = [
     # board.
     "abidjan", "côte d'ivoire", "côte d’ivoire", "ivory coast",
     "ghana", "accra", "rwanda", "kigali",
+    # Caribbean / Central & South America (a Dominican Republic "Customer
+    # Success Specialist" reached the sheet).
+    "dominican republic", "guatemala", "ecuador", "venezuela", "el salvador",
+    "honduras", "nicaragua", "bolivia", "paraguay", "jamaica", "bahamas",
+    "pakistan", "bangladesh", "sri lanka", "nepal", "cambodia", "morocco",
+    "tunisia", "ethiopia", "tanzania", "uganda", "jordan", "lebanon", "kuwait",
+    "bahrain",
 ]
 # Three-letter country codes, as Amazon writes them ("Sao Paulo, BRA").
 NON_US_CODES = {
@@ -1214,7 +1239,7 @@ def _norm_date(value):
 
 # Programs skip the age limit (they stay open for months), but a posting dated
 # years ago is a dead listing or a staffing-firm repost, not an open program.
-ANCIENT_DAYS = 900
+ANCIENT_DAYS = 270
 
 
 def _ancient(posted_norm):
@@ -1402,6 +1427,20 @@ def _post_json_retry(url, body, headers, tries=5):
     return _request_retry("POST", url, tries=tries, json=body, timeout=30, headers=headers).json()
 
 
+def _workday_posted(text):
+    t = (text or "").lower()
+    today = datetime.date.today()
+    if "today" in t:
+        return today.isoformat()
+    if "yesterday" in t:
+        return (today - datetime.timedelta(days=1)).isoformat()
+    m = re.search(r"(\d+)\+?\s*days?", t)
+    if m:
+        n = int(m.group(1)) + (1 if "+" in t else 0)
+        return (today - datetime.timedelta(days=n)).isoformat()
+    return ""
+
+
 def fetch_workday(c):
     """Read a Workday board: its newest WORKDAY_NEWEST postings, plus
     early-career searches across the whole board.
@@ -1449,11 +1488,10 @@ def fetch_workday(c):
                 "title": j.get("title", ""),
                 "location": j.get("locationsText", ""),
                 "url": f"{link_prefix}{path}",
-                # Workday only gives relative text ("Posted 5 Days Ago"),
-                # which won't normalize to a real date, so leave it blank --
-                # see _extract_json_ld_date() for the fallback main() applies
-                # once the description is fetched.
-                "posted": "",
+                # "Posted 5 Days Ago" -> a date; "Posted 30+ Days Ago" -> 31 days
+                # back, i.e. stale. (This used to be left blank, so a month-old
+                # posting looked undated and was never aged out.)
+                "posted": _workday_posted(j.get("postedOn", "")),
                 # Workday listing carries no description; title filter only.
                 "description": "",
             })
@@ -2074,6 +2112,8 @@ def _fetch_eightfold_description(host, position_id):
     r = requests.get(f"https://{api_host}/api/pcsx/position_details",
                      params={"position_id": position_id, "domain": domain, "hl": "en"},
                      timeout=30, headers=REQ_HEADERS)
+    if r.status_code == 404:
+        return "This job is no longer available. postingAvailable: false"
     r.raise_for_status()
     return _strip_html((r.json().get("data") or {}).get("jobDescription", ""))
 
@@ -2370,6 +2410,53 @@ def fetch_jazzhr(c):
 
 
 
+_WD_URL_RE = re.compile(
+    r"https://([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Za-z]{2}/)?([^/]+)(/job/[^?#]+)")
+_WD_SITE_URL_RE = re.compile(
+    r"https://(wd\d+)\.myworkdaysite\.com/(?:[a-z]{2}-[A-Za-z]{2}/)?recruiting/([^/]+)/([^/]+)(/job/[^?#]+)")
+
+
+def _fetch_workday_description(url):
+    """A Workday posting from its own detail API. The posting PAGE is a script
+    shell for many tenants (Motorola's carried no text at all, so a "4+ years"
+    requirement went unseen); the API always has the description, the real
+    posted date and the country."""
+    m = _WD_URL_RE.match(url)
+    if m:
+        tenant, wd, site, path = m.groups()
+        api = f"https://{tenant}.{wd}.myworkdayjobs.com/wday/cxs/{tenant}/{site}{path}"
+    else:
+        m = _WD_SITE_URL_RE.match(url)
+        if not m:
+            return ""
+        wd, tenant, site, path = m.groups()
+        api = f"https://{wd}.myworkdaysite.com/wday/cxs/{tenant}/{site}{path}"
+    r = requests.get(api, timeout=25, headers=REQ_HEADERS)
+    if r.status_code in (403, 404):
+        return "This job is no longer available. postingAvailable: false"
+    r.raise_for_status()
+    info = r.json().get("jobPostingInfo") or {}
+    if info.get("canApply") is False:
+        return "postingAvailable: false"
+    country = (info.get("country") or {}).get("descriptor") or ""
+    return _join(_strip_html(info.get("jobDescription", "")),
+                 f'"datePosted": "{info["startDate"]}"' if info.get("startDate") else "",
+                 f'"addressCountry": "{country}"' if country else "")
+
+
+_RIPPLING_URL_RE = re.compile(r"https://ats\.rippling\.com/([^/]+)/jobs/([0-9a-f-]{36})")
+
+
+def _fetch_rippling_description(board, job_id):
+    """Rippling's job pages are a script shell (a 190 KB config blob, no text);
+    the public board API carries the real description."""
+    r = requests.get(f"https://api.rippling.com/platform/api/ats/v1/board/{board}/jobs/{job_id}",
+                     timeout=25, headers=REQ_HEADERS)
+    r.raise_for_status()
+    d = r.json().get("description") or {}
+    return _join(*[_strip_html(v) for v in d.values() if isinstance(v, str)])
+
+
 def _fetch_sf_description(url):
     """Description of a SuccessFactors posting: only the job-description span
     (the full page is 100-300 KB of script and navigation, which would feed
@@ -2605,7 +2692,7 @@ def years_required(desc):
         nonlocal best
         # Skip retrospective and forward-looking phrasing: "over the past 3
         # years", "founded 10 years ago", "in the next 3 years".
-        if _BACKWARD_LOOKING.search(text[max(0, m.start() - 30):m.start()]):
+        if _BACKWARD_LOOKING.search(re.split(r"[).;:]", text[max(0, m.start() - 30):m.start()])[-1]):
             return
         if _COMPANY_HISTORY.search(text[max(0, m.start() - 80):m.start()]):
             return
@@ -2721,10 +2808,25 @@ def has_senior_track_record_signal(desc):
 # both. Confirmed live across 500 title+location-matching postings: exactly
 # 6 contain this phrase, all 6 genuinely senior (the 2 not already caught by
 # something else are both Harvey CSM postings), zero false positives.
-_EXPERIENCED_PROFESSIONAL = re.compile(r"\bexperienced professionals?\b", re.I)
+_EXPERIENCED_PROFESSIONAL = re.compile(
+    r"\bexperienced (?:professionals?|product operators?|operators?|hires?)\b|"
+    r"\bdesigned for an experienced\b|\bgrow into a senior\b", re.I)
+# "Required: Extensive experience directly managing Google Ads campaigns" -- a
+# senior bar with no number (StubHub). Needs a requirement cue just before it,
+# so a benign "extensive experience" elsewhere in the page doesn't count.
+_EXTENSIVE_REQUIRED = re.compile(
+    r"\b(?:required|requirements?|must have|basic qualifications|minimum qualifications)\b[:\s]{0,4}"
+    r"[^.]{0,40}?\b(?:extensive|substantial|significant|deep)\s+"
+    r"(?:practical\s+|hands[- ]on\s+|professional\s+)?(?:experience|expertise)\b", re.I)
 
 
 def has_experienced_professional_signal(desc):
+    if desc and _EXTENSIVE_REQUIRED.search(desc):
+        return True
+    return _has_experienced_professional_signal(desc)
+
+
+def _has_experienced_professional_signal(desc):
     """True if the description opens a requirement with "experienced
     professional(s)" -- see _EXPERIENCED_PROFESSIONAL above for the evidence
     behind this exact phrase."""
@@ -2752,6 +2854,8 @@ def earliest_graduation_window(desc):
             continue
         season, year = m.group(1), int(m.group(2))
         month = _SEASON_MONTH.get((season or "").lower(), 1)
+        if re.search(r"\bmay\s*/\s*$", text[max(0, m.start() - 6):m.start()], re.I):
+            month = min(month, 5)
         cand = (year, month)
         if best is None or cand < best:
             best = cand
@@ -2856,6 +2960,21 @@ def _fetch_description(url):
             pass
     host = re.match(r"https?://([^/]+)", url)
     host = host.group(1) if host else ""
+    m = _RIPPLING_URL_RE.match(url)
+    if m:
+        try:
+            d = _fetch_rippling_description(*m.groups())
+            if d:
+                return d
+        except Exception:
+            pass
+    if "myworkday" in host:
+        try:
+            d = _fetch_workday_description(url)
+            if d:
+                return d
+        except Exception:
+            pass
     if host in _SF_HOSTS and "/job/" in url:
         try:
             d = _fetch_sf_description(url)
@@ -3093,8 +3212,45 @@ def _is_foreign_title(title):
     return bool(_FOREIGN_TITLE_RE.search(t)) or any(ch.isalpha() and ord(ch) > 127 for ch in t)
 
 
+_EXTRA_TITLE_EXCLUDE_RE = re.compile(
+    # Advanced degree is the bar (Applied Materials "New Grad - Master's", Adobe
+    # "2027 MBA University Graduate").
+    r"\b(master'?s|masters|mba|ph\.?d)\b|"
+    # Engineering by another name: "2027 Engineering Rotational Product Development".
+    r"\bengineering\b[^,|(]{0,30}\b(rotational|development program|program)\b|"
+    r"\b(rotational|development program)\b[^,|(]{0,30}\bengineering\b|"
+    r"\bengineering (?:co-?op|intern\w*)\b|"
+    # Too technical for a product / program role (HP "SQA Integration TPM").
+    r"\b(sqa|sdet|firmware|silicon|asic|fpga|kernel|devops|sre)\b|software quality|"
+    r"\b(technician|technologist)s?\b|"
+    # Not a professional / not adjacent to product, ops, support or customer
+    # success: front-desk and facilities work, observers, supervisors.
+    r"\b(observer|facilities|workplace|receptionist|supervisor|superintendent|foreman)\b|"
+    r"\bfy ?27\b|naelfy27|"
+    r"\bfront desk\b|\b(administrative|admin|office) assistant\b|"
+    # Finance, accounting, HR: "financial analyst doesn't make sense".
+    r"\b(financ\w*|accounting|accountant|treasury|tax|audit\w*|payroll|bookkeep\w*|billing|"
+    r"controller|fp&a|actuar\w*|underwrit\w*|human resources|hr)\b|accounts (?:payable|receivable)|"
+    # Deeply technical analyst titles.
+    r"\b(threat|cyber\w*|infosec|soc|noc)\b|"
+    r"\bnetwork (?:analyst|engineer\w*|administrator|operations|technician)\b|"
+    r"\bhardware (?:technical|analyst|engineer\w*)\b|\btechnical sales\b|"
+    # Plant / production-floor "Specialist" titles (Hyundai, Honda, ...).
+    r"\b(production control|process control|quality control|general assembly|parts development|"
+    r"stamping|welding|salvage|paint shop|body shop|powertrain assembly)\b|"
+    r"\bengine (?:qc|salvage)\b|"
+    # Needs a non-English language (Garmin Portuguese/French support, Spanish analyst).
+    r"\b(spanish|french|portuguese|german|italian|japanese|korean|mandarin|cantonese|arabic|"
+    r"russian|dutch|polish|hindi|bilingual|multilingual)\b|"
+    # Creative work, crowd-work and call-centre style titles.
+    r"\b(copywrit\w*|creative)\b|\bonline data analyst\b|"
+    r"\bcustomer service (?:agent|representative|rep|associate)s?\b", re.I)
+
+
 def _title_excluded(title):
     t = title.lower()
+    if _EXTRA_TITLE_EXCLUDE_RE.search(title):
+        return True
     for w in TITLE_EXCLUDE_WORDS:
         if w in t:
             return True
@@ -3181,6 +3337,129 @@ def _years_ceiling_for(title):
     return MAX_YEARS_EXPERIENCE
 
 
+# Industries whose experience you don't have: medical, investment/private
+# banking, AML, pharma lab work. A product role that is mostly about one of
+# these asks for that background even when it never says "years" (flagged:
+# E2 Endovascular, Fortress, Chase Private Bank, JPMC AML, Eurofins).
+_DOMAIN_HEAVY_TERMS = (
+    "anti-money laundering", "money laundering", "aml/", "investor relations",
+    "investment manager", "investment management", "private bank", "investment banking",
+    "hedge fund", "private equity", "capital markets", "wealth management",
+    "medical device", "physician", "endovascular", "clinical", "biopharma",
+    "pharmaceutical", "gmp", "regulatory affairs",
+    "capital management", "proprietary trading", "trading firm", "market maker",
+)
+
+
+def domain_heavy(title, desc):
+    t = (title or "").lower()
+    if any(term in t for term in _DOMAIN_HEAVY_TERMS):
+        return True
+    d = (desc or "").lower()
+    return sum(1 for term in _DOMAIN_HEAVY_TERMS if term in d) >= 2
+
+
+_HS_FLOOR_RE = re.compile(
+    r"high school diploma or|high school (?:diploma|degree)/ged|ged equivalent|ged or equivalent|"
+    r"high school or equivalent|high school diploma/", re.I)
+
+_PAY_RE = re.compile(
+    r"\$\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(k\b)?"
+    r"(?:\s*(?:-|–|—|to)\s*\$?\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(k\b)?)?"
+    r"(\s*(?:/|per|an|a)?\s*(?:hour|hr)\b|\s*hourly)?", re.I)
+MIN_HOURLY_TOP = 30.0     # $/hr -- the top of the stated range must reach this
+MIN_ANNUAL_TOP = 65000.0  # $/yr
+
+
+def pay_too_low(desc):
+    """True when every pay figure a posting states is below a professional
+    floor: hourly top under $30, or yearly top under $65k (Comcast $19/hr,
+    Expeditors $17.50-$26/hr, Bosch $22.78-$27.12/hr, a $60k-capped city job).
+    No stated pay is never a reason to drop a role."""
+    tops = []
+    for m in _PAY_RE.finditer(desc or ""):
+        def val(num, k):
+            v = float(num.replace(",", ""))
+            return v * 1000 if k else v
+        lo = val(m.group(1), m.group(2))
+        hi = val(m.group(3), m.group(4)) if m.group(3) else lo
+        top = max(lo, hi)
+        if m.group(5):
+            tops.append(("h", top))
+        elif top >= 20000:
+            tops.append(("y", top))
+    if not tops:
+        return False
+    return all((t < MIN_HOURLY_TOP if kind == "h" else t < MIN_ANNUAL_TOP) for kind, t in tops)
+
+
+_CODING_TERMS = ("python", "pyspark", "pandas", "numpy", "jupyter", "scala", "java ", "c++", "tensorflow",
+                 "pytorch", "machine learning", "data science", "spark", "hadoop", "airflow", "dbt",
+                 "statistical programming", "r programming", "rstudio")
+_FINANCE_TERMS = ("financial analysis", "financial modeling", "financial modelling", "financial reporting",
+                  "financial planning", "p&l", "budget", "forecast", "variance", "gaap", "general ledger",
+                  "month-end", "accounts payable", "accounts receivable")
+
+
+_QUALIFICATION_MARKERS = ("qualification", "requirement", "experience", "degree", "bachelor", "skills",
+                          "proficien", "knowledge", "years")
+
+
+def _looks_incomplete(desc):
+    """An unfinished listing: a line or two, or a body with no qualification,
+    requirement, skill or experience wording at all (BorgWarner's "Material
+    Planner"), so there is nothing to judge it on."""
+    d = (desc or "").lower()
+    if len(d.strip()) < 150:
+        return True
+    return len(d) < 6000 and not any(m in d for m in _QUALIFICATION_MARKERS)
+
+
+def too_technical_analyst(title, desc):
+    """Analyst roles that are really coding (DRW: Python, PySpark, pandas, ...)
+    or finance (PopStroke's \"Business Analyst\" is a financial analyst)."""
+    t = (title or "").lower()
+    if "analy" not in t:
+        return False
+    d = (desc or "").lower()
+    if sum(1 for x in _CODING_TERMS if x in d) >= 2:
+        return True
+    # A "Business Analyst" inside a Finance function (PopStroke: 11 mentions of finance).
+    return sum(1 for x in _FINANCE_TERMS if x in d) >= 4 or len(re.findall(r"financ\w+", d)) >= 6
+
+
+_PHONE_PHRASES = ("phone calls", "by phone", "on the phone", "telephone", "calls from customers",
+                  "customer calls", "handle inbound", "answer calls", "incoming calls", "inbound call")
+_PHONE_TITLE_RE = re.compile(r"customer (?:service|account|care)|service (?:agent|representative)", re.I)
+
+
+_ADV_DEGREE_URL_RE = re.compile(r"[-/_](master-s|masters|mba|phd)(?:[-_/.]|$)", re.I)
+
+
+def advanced_degree_required(job):
+    """A master's / MBA / PhD role. Aggregator feeds sometimes trim the title
+    ("... New College Grad- Master's" became "... New Grad"), so the posting
+    URL and the qualifications are checked too: master's named as the degree
+    with no bachelor's anywhere in the posting (Applied Materials)."""
+    if _ADV_DEGREE_URL_RE.search((job.get("url") or "").split("?")[0]):
+        return True
+    d = (job.get("description") or "").lower()
+    if re.search(r"\b(?:master'?s|masters|mba)\b", d) and "bachelor" not in d:
+        return True
+    return bool(re.search(r"\b(?:mba|master'?s) (?:student|candidate)s?\b|\bpursuing an? (?:mba|master)", d))
+
+
+def _support_not_professional(desc):
+    """Support roles that are call-centre / high-school-diploma jobs, not the
+    professional customer-success work you want (Uber Freight dock scheduling,
+    Honeywell phone support)."""
+    d = (desc or "").lower()
+    if re.search(r"high school diploma or|high school (?:diploma|degree) (?:or ged|required)|ged equivalent", d):
+        return True
+    return any(p in d for p in ("call center", "call centre", "contact center", "inbound calls",
+                                "outbound calls", "answer phone", "answering phone"))
+
+
 def matches(job, is_robotics=False):
     # US-only: anything naming a country outside the US is dropped. A listing
     # that names no country at all is kept (see is_non_us), and location
@@ -3205,6 +3484,10 @@ def matches(job, is_robotics=False):
             return False
     if _description_excluded(title, desc):
         return False
+    if domain_heavy(title, desc):
+        return False
+    if _is_support_category_title(title) and _support_not_professional(desc):
+        return False
     ceiling = _years_ceiling_for(title)
     if ceiling is not None:
         years = years_required(desc)
@@ -3214,10 +3497,8 @@ def matches(job, is_robotics=False):
             return False
         if has_experienced_professional_signal(desc):
             return False
-    # An early-career program's own graduation window ("graduating between
-    # Winter 2026 and Summer 2027") is the program's target cohort, not a
-    # reason to hide it -- see _is_program_title.
-    if GRADUATED is not None and not _is_program_title(title):
+    # A graduation window that opens after you graduated is a future cohort.
+    if GRADUATED is not None:
         grad = earliest_graduation_window(desc)
         if grad is not None and grad > GRADUATED:
             return False
@@ -3248,6 +3529,9 @@ def matches(job, is_robotics=False):
 # The years-of-experience ceiling (MAX_YEARS_EXPERIENCE = 0) is unchanged and
 # already stricter than "3+ years".
 _MANAGER_WORD_RE = re.compile(r"\bmanager\b", re.I)
+# A title that BEGINS with "Manager" ("Manager, Global SME Credit Product
+# Management") is the manager level itself, however the description reads.
+_MANAGER_LEVEL_TITLE_RE = re.compile(r"^\s*(?:senior |sr\.? |lead |principal )?manager\b", re.I)
 # "associate" alone isn't enough when it's "Associate Manager" -- that's a
 # mid-level title at large companies, not an entry-level one.
 _EARLY_CAREER_TITLE_RE = re.compile(
@@ -3325,6 +3609,8 @@ def seniority_blocked(title, desc):
     desc = (desc or "").lower()
     if has_people_management_signal(desc):
         return True
+    if _MANAGER_LEVEL_TITLE_RE.search(title) and not _EARLY_CAREER_TITLE_RE.search(title):
+        return True
     if _MANAGER_WORD_RE.search(title):
         years = years_required(desc)
         clearly_early = (
@@ -3354,6 +3640,20 @@ def classify_job(job, is_robotics=False):
     """Routes a job to 'core' or 'v2' (see _classify_job_raw), then applies the
     seniority gate above to whichever it picked -- so a role that passed every
     title/description/years check but reads as experienced-hire is dropped."""
+    # Typographic quotes would hide "Master's or PhD" from every phrase check.
+    desc = (job.get("description") or "")
+    if any(ch in desc for ch in "\u2019\u2018\u201c\u201d\u00a0"):
+        job = {**job, "description": desc.replace("\u2019", "'").replace("\u2018", "'")
+               .replace("\u201c", '"').replace("\u201d", '"').replace("\u00a0", " ")}
+        desc = job["description"]
+    if advanced_degree_required(job):
+        return None
+    title = job.get("title") or ""
+    low = desc.lower()
+    if _HS_FLOOR_RE.search(low) or pay_too_low(desc) or too_technical_analyst(title, desc):
+        return None
+    if _PHONE_TITLE_RE.search(title) and any(p in low for p in _PHONE_PHRASES):
+        return None
     category = _classify_job_raw(job, is_robotics=is_robotics)
     if category and seniority_blocked(job.get("title"), job.get("description")):
         return None
@@ -3398,6 +3698,14 @@ def _classify_job_raw(job, is_robotics=False):
     # rather than factored out, so matches() itself never has to change.
     if _description_excluded(title, desc):
         return None
+    if _is_support_category_title(title) and _support_not_professional(desc):
+        return None
+    if domain_heavy(title, desc):
+        return None
+    if "sales engineer" in title and not (
+            _EARLY_CAREER_TITLE_RE.search(title) or has_early_career_desc_signal(desc)
+            or (years_required(desc) is not None and years_required(desc) <= 1)):
+        return None   # a mid-level Sales Engineer (PermitFlow, Trimble), not an entry role
     ceiling = _years_ceiling_for(title)
     if ceiling is not None:
         years = years_required(desc)
@@ -3407,7 +3715,7 @@ def _classify_job_raw(job, is_robotics=False):
             return None
         if has_experienced_professional_signal(desc):
             return None
-    if GRADUATED is not None and not _is_program_title(title):
+    if GRADUATED is not None:
         grad = earliest_graduation_window(desc)
         if grad is not None and grad > GRADUATED:
             return None
@@ -4028,6 +4336,10 @@ def main(dry_run=False):
             # No description even after the fetch: don't judge it on nothing
             # and don't remember it -- the next run tries again.
             fetched = bool(desc.strip()) and needed_fetch
+            # A posting whose whole text is a line or two is an unfinished
+            # listing (BorgWarner's "Material Planner") -- nothing to judge it on.
+            if desc.strip() and not is_closed_posting(desc) and _looks_incomplete(desc):
+                continue
             if is_closed_posting(desc):
                 if fetched:
                     newly_rejected.add(key)

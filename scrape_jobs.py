@@ -3428,6 +3428,40 @@ def too_technical_analyst(title, desc):
     return sum(1 for x in _FINANCE_TERMS if x in d) >= 4 or len(re.findall(r"financ\w+", d)) >= 6
 
 
+# You live in Boston and are open to relocating for a PRODUCT role, but a
+# customer-service / support / customer-success job tied to an office somewhere
+# else (Honeywell in Salem OR, Uber Freight in Rogers AR) isn't worth moving for.
+_SERVICE_ROLE_RE = re.compile(
+    r"customer (?:success|support|service|care|experience)|"
+    r"(?:technical|product|application|client|customer) support|"
+    r"support (?:specialist|associate|analyst|representative|agent)|"
+    r"service (?:agent|representative)|help ?desk", re.I)
+_REMOTE_DESC_RE = re.compile(
+    r"fully remote|100% remote|remote[- ]first|remote position|remote role|remote opportunity|"
+    r"work from home|work remotely|this (?:is a )?remote|location:\s*remote|remote within the (?:u\.?s|united states)",
+    re.I)
+_NOT_A_PLACE = {"usa", "u.s.", "united states", "us-remote", "remote us", "remote - us"}
+_HOME_STATE_RE = re.compile(r"\bMA\b|massachusetts|boston", re.I)
+
+
+def service_role_needs_other_state(title, location, desc):
+    """A customer service / support / success role that names an on-site
+    location outside Massachusetts and isn't remote."""
+    if not _SERVICE_ROLE_RE.search(title or ""):
+        return False
+    loc = location or ""
+    if re.search(r"remote|anywhere|work from home", loc, re.I) or _REMOTE_DESC_RE.search(desc or ""):
+        return False
+    if _HOME_STATE_RE.search(loc):
+        return False
+    low = loc.lower()
+    named_state = (any(t.lower() in US_STATE_CODES for t in re.findall(r"\b[A-Z]{2}\b", loc))
+                   # codes US_STATE_CODES leaves out because they are also words
+                   or bool(re.search(r",\s*(?:OR|IN|ID|LA|ME|OK|HI|DE)\b", loc)))
+    named_place = any(t in low for t in US_TERMS if t not in _NOT_A_PLACE)
+    return named_state or named_place
+
+
 _PHONE_PHRASES = ("phone calls", "by phone", "on the phone", "telephone", "calls from customers",
                   "customer calls", "handle inbound", "answer calls", "incoming calls", "inbound call")
 _PHONE_TITLE_RE = re.compile(r"customer (?:service|account|care)|service (?:agent|representative)", re.I)
@@ -3653,6 +3687,8 @@ def classify_job(job, is_robotics=False):
     if _HS_FLOOR_RE.search(low) or pay_too_low(desc) or too_technical_analyst(title, desc):
         return None
     if _PHONE_TITLE_RE.search(title) and any(p in low for p in _PHONE_PHRASES):
+        return None
+    if service_role_needs_other_state(title, job.get("location"), desc):
         return None
     category = _classify_job_raw(job, is_robotics=is_robotics)
     if category and seniority_blocked(job.get("title"), job.get("description")):

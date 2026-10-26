@@ -647,7 +647,8 @@ _ROBOTICS_ANY_ROLE_EXCLUDE_TITLE_RE = re.compile(
 _ANY_ROLE_ALLOW_RE = re.compile(
     r"\b(analyst|coordinator|specialist|planner|buyer|purchasing|procurement|"
     r"sourcing|program|project|strategy|strategic|business|logistics|"
-    r"supply chain|financ\w*|marketing|account\w*|customer success|ux|designer|design)\b",
+    r"supply chain|financ\w*|marketing|account\w*|customer success|ux|designer|design|"
+    r"analytics|insights|data)\b",
     re.IGNORECASE,
 )
 
@@ -784,7 +785,8 @@ _PROGRAM_TITLE_RE = re.compile(
     r"\bgraduate\b|\bearly[- ]career\b|\brotational\b|\brotation program\b|"
     r"\blaunch (?:graduate )?program\b|\bleadership (?:development )?program\b|"
     r"\baccelerator\b|\bcampus\b|\bclass of 20\d\d\b|\bentry[- ]level\b|"
-    r"\bproduct management analyst program\b|\btraining program\b|\bgrad program\b",
+    r"\bproduct management analyst program\b|\btraining program\b|\bgrad program\b|"
+    r"\bassociate (?:development|rotational|leadership|early[- ]career) program\b",
     re.I)
 _INTERN_TITLE_RE = re.compile(r"\bintern(?:ship)?s?\b|\bco-?op\b", re.I)
 
@@ -1210,7 +1212,13 @@ def _norm_date(value):
     return ""
 
 
-def is_stale(posted_norm):
+# Co-ops and internships stay open for weeks while a company fills a cohort
+# (SharkNinja's co-op pools sit on the board for months), so they get a longer
+# window than ordinary roles.
+INTERN_MAX_POSTING_AGE_DAYS = 60
+
+
+def is_stale(posted_norm, title=""):
     """True if a normalized YYYY-MM-DD posted date is older than
     MAX_POSTING_AGE_DAYS. A blank date -- the source gave nothing usable, or
     gives no date at all -- is never stale, since there's nothing to judge it
@@ -1221,7 +1229,8 @@ def is_stale(posted_norm):
         posted = datetime.date.fromisoformat(posted_norm)
     except ValueError:
         return False
-    return (datetime.date.today() - posted).days > MAX_POSTING_AGE_DAYS
+    limit = INTERN_MAX_POSTING_AGE_DAYS if _INTERN_TITLE_RE.search(title or "") else MAX_POSTING_AGE_DAYS
+    return (datetime.date.today() - posted).days > max(limit, MAX_POSTING_AGE_DAYS)
 
 
 def _has_term(text, terms, codes):
@@ -2665,6 +2674,10 @@ _SENIOR_TRACK_RECORD = re.compile(
 )
 
 
+_COMPANY_BLURB_LEAD = re.compile(
+    r"\b(?:company|firm|brands?|group|team|we|they)\s+(?:has|have|had|with)\s+an?\s*$", re.I)
+
+
 def has_senior_track_record_signal(desc):
     """True if the description carries the qualitative-seniority pattern
     _SENIOR_TRACK_RECORD matches -- a senior/staff-level bar stated in prose
@@ -2672,7 +2685,14 @@ def has_senior_track_record_signal(desc):
     comment above the regex for exactly what this does and doesn't match."""
     if not desc:
         return False
-    return bool(_SENIOR_TRACK_RECORD.search(desc))
+    for m in _SENIOR_TRACK_RECORD.finditer(desc):
+        # "...the company has a proven track record of bringing disruptive
+        # innovation to market" is the employer's own blurb (SharkNinja's
+        # "About Us"), not a bar set for the applicant.
+        if _COMPANY_BLURB_LEAD.search(desc[max(0, m.start() - 30):m.start()]):
+            continue
+        return True
+    return False
 
 
 # Turned up opening the Customer Success category: Harvey's "WHAT YOU HAVE -
@@ -3961,7 +3981,7 @@ def main(dry_run=False):
             # Programs keep their original posted date for months while still
             # open -- exempt from the freshness limit (see _is_program_title).
             program = _is_program_title(j.get("title"))
-            if is_stale(posted) and not program:
+            if is_stale(posted, j.get("title")) and not program:
                 continue
             # Only a posting whose description had to be DOWNLOADED is worth
             # remembering as rejected -- that download is what the Seen list
@@ -4000,7 +4020,7 @@ def main(dry_run=False):
                 extracted = _extract_json_ld_date(desc)
                 if extracted:
                     posted = extracted
-                    if is_stale(posted) and not program:
+                    if is_stale(posted, j.get("title")) and not program:
                         if fetched:
                             newly_rejected.add(key)
                         continue
@@ -4028,7 +4048,7 @@ def main(dry_run=False):
                     real_posted = _norm_date(real_posted)
                     if real_posted:
                         posted = real_posted
-                        if is_stale(posted) and not program:
+                        if is_stale(posted, j.get("title")) and not program:
                             continue
                 else:
                     unresolved_jobright.append((company, j["title"]))

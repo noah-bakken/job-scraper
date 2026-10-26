@@ -932,7 +932,8 @@
  {
   "name": "SharkNinja",
   "ats": "greenhouse",
-  "slug": "sharkninjaoperatingllc"
+  "slug": "sharkninjaoperatingllc",
+  "robotics": true
  },
  {
   "name": "Legend Biotech",

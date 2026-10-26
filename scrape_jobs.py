@@ -1212,10 +1212,24 @@ def _norm_date(value):
     return ""
 
 
+# Programs skip the age limit (they stay open for months), but a posting dated
+# years ago is a dead listing or a staffing-firm repost, not an open program.
+ANCIENT_DAYS = 900
+
+
+def _ancient(posted_norm):
+    try:
+        return (datetime.date.today() - datetime.date.fromisoformat(posted_norm)).days > ANCIENT_DAYS
+    except (TypeError, ValueError):
+        return False
+
+
 # Co-ops and internships stay open for weeks while a company fills a cohort
 # (SharkNinja's co-op pools sit on the board for months), so they get a longer
 # window than ordinary roles.
 INTERN_MAX_POSTING_AGE_DAYS = 60
+# Roles whose title says associate / junior / entry level stay listed longer too.
+ENTRY_TITLE_MAX_POSTING_AGE_DAYS = 45
 
 
 def is_stale(posted_norm, title=""):
@@ -1229,7 +1243,11 @@ def is_stale(posted_norm, title=""):
         posted = datetime.date.fromisoformat(posted_norm)
     except ValueError:
         return False
-    limit = INTERN_MAX_POSTING_AGE_DAYS if _INTERN_TITLE_RE.search(title or "") else MAX_POSTING_AGE_DAYS
+    limit = MAX_POSTING_AGE_DAYS
+    if _INTERN_TITLE_RE.search(title or ""):
+        limit = INTERN_MAX_POSTING_AGE_DAYS
+    elif _ENTRY_LOOKING_TITLE_RE.search(title or ""):
+        limit = ENTRY_TITLE_MAX_POSTING_AGE_DAYS
     return (datetime.date.today() - posted).days > max(limit, MAX_POSTING_AGE_DAYS)
 
 
@@ -3147,11 +3165,18 @@ def _is_support_category_title(title):
     )
 
 
+# A title that itself signals an entry-level role gets the looser ceiling: a
+# posting called "Associate Program Manager" that asks for "1+ years" is still
+# the entry rung, and a hard 0 was dropping them (SharkNinja's APAC role).
+_ENTRY_LOOKING_TITLE_RE = re.compile(
+    r"\b(associate|junior|jr\.?|entry[- ]level|assistant|graduate|early[- ]career|new grad\w*)\b", re.I)
+
+
 def _years_ceiling_for(title):
     """Which MAX_YEARS_EXPERIENCE* ceiling applies to a given (lowercased)
     title. See MAX_YEARS_EXPERIENCE_SUPPORT for why this category gets its
     own, looser number."""
-    if _is_support_category_title(title):
+    if _is_support_category_title(title) or _ENTRY_LOOKING_TITLE_RE.search(title or ""):
         return MAX_YEARS_EXPERIENCE_SUPPORT
     return MAX_YEARS_EXPERIENCE
 
@@ -3981,7 +4006,7 @@ def main(dry_run=False):
             # Programs keep their original posted date for months while still
             # open -- exempt from the freshness limit (see _is_program_title).
             program = _is_program_title(j.get("title"))
-            if is_stale(posted, j.get("title")) and not program:
+            if is_stale(posted, j.get("title")) and not (program and not _ancient(posted)):
                 continue
             # Only a posting whose description had to be DOWNLOADED is worth
             # remembering as rejected -- that download is what the Seen list
@@ -4020,7 +4045,7 @@ def main(dry_run=False):
                 extracted = _extract_json_ld_date(desc)
                 if extracted:
                     posted = extracted
-                    if is_stale(posted, j.get("title")) and not program:
+                    if is_stale(posted, j.get("title")) and not (program and not _ancient(posted)):
                         if fetched:
                             newly_rejected.add(key)
                         continue
@@ -4048,7 +4073,7 @@ def main(dry_run=False):
                     real_posted = _norm_date(real_posted)
                     if real_posted:
                         posted = real_posted
-                        if is_stale(posted, j.get("title")) and not program:
+                        if is_stale(posted, j.get("title")) and not (program and not _ancient(posted)):
                             continue
                 else:
                     unresolved_jobright.append((company, j["title"]))
